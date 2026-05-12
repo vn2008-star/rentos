@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================
+    // Helper Functions
+    // ============================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function belongsToOrg(orgId) {
+      return isSignedIn() && getUserProfile().orgId == orgId;
+    }
+
+    function isOwnerOrManager() {
+      let profile = getUserProfile();
+      return profile.role in ['super_admin', 'owner', 'manager'];
+    }
+
+    // ============================================
+    // User Profiles
+    // ============================================
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ============================================
+    // Organizations
+    // ============================================
+    match /organizations/{orgId} {
+      allow read: if belongsToOrg(orgId);
+      allow create: if isSignedIn();
+      allow update: if belongsToOrg(orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Properties (orgId-scoped)
+    // ============================================
+    match /properties/{propertyId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Units (orgId-scoped)
+    // ============================================
+    match /units/{unitId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Tenants (orgId-scoped)
+    // ============================================
+    match /tenants/{tenantId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Leases (orgId-scoped)
+    // ============================================
+    match /leases/{leaseId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Applications (orgId-scoped)
+    // ============================================
+    match /applications/{appId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn();
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Maintenance Requests (orgId-scoped)
+    // ============================================
+    match /maintenance/{requestId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Vendors (orgId-scoped)
+    // ============================================
+    match /vendors/{vendorId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Transactions (orgId-scoped)
+    // ============================================
+    match /transactions/{txId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Listings (orgId-scoped)
+    // ============================================
+    match /listings/{listingId} {
+      allow read: if true;  // Public listing pages
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+  }
+}

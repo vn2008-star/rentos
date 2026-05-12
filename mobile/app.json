@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "RentOS",
+    "slug": "rentos",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#09090b"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rentos.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#6d28d9"
+      },
+      "package": "com.rentos.app"
+    },
+    "plugins": ["expo-camera", "expo-image-picker"]
+  }
+}

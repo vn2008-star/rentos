@@ -1,0 +1,10 @@
+runConfig:
+  minInstances: 0
+  maxInstances: 2
+  memoryMiB: 512
+  cpu: 1
+  concurrency: 80
+
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: rentos-pm-app
