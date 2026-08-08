@@ -5,18 +5,18 @@ import { CreditCard, DollarSign, Clock, CheckCircle2, ToggleLeft, ToggleRight, H
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useLeases, useTenants, useTransactions } from "@/lib/hooks";
+import { useLeases, useCurrentTenant, useTransactions } from "@/lib/hooks";
 import { StripePaymentForm } from "@/components/stripe-payment-form";
 import toast from "react-hot-toast";
 
 export default function TenantPaymentsPage() {
   const { leases } = useLeases();
-  const { tenants } = useTenants();
+  const { tenant: currentTenant } = useCurrentTenant();
   const { transactions } = useTransactions();
   const [showPayment, setShowPayment] = useState(false);
   const [autopay, setAutopay] = useState(false);
 
-  const myTenant = tenants[0];
+  const myTenant = currentTenant;
   const myLease = leases.find(l => l.tenantIds.includes(myTenant?.id || ""));
   const myTransactions = transactions
     .filter(t => t.tenantId === myTenant?.id)

@@ -6,18 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { useLeases, useTenants, useMaintenance, useTransactions } from "@/lib/hooks";
+import { useLeases, useCurrentTenant, useMaintenance, useTransactions } from "@/lib/hooks";
 import { useAuthStore } from "@/lib/store";
 
 export default function TenantPortalPage() {
   const user = useAuthStore(s => s.user);
   const { leases } = useLeases();
-  const { tenants } = useTenants();
+  const { tenant: myTenant } = useCurrentTenant();
   const { requests } = useMaintenance();
   const { transactions } = useTransactions();
 
-  // Find current tenant's lease (demo: use first tenant)
-  const myTenant = tenants[0];
   const myLease = leases.find(l => l.tenantIds.includes(myTenant?.id || ""));
   const myRequests = requests.filter(r => r.tenantId === myTenant?.id).slice(0, 3);
   const myTransactions = transactions.filter(t => t.tenantId === myTenant?.id).slice(0, 5);
@@ -50,7 +48,7 @@ export default function TenantPortalPage() {
                 Due {nextDueDate.toLocaleDateString("en-US", { month: "long", day: "numeric" })}
               </p>
             </div>
-            <Link href="/tenant/portal/payments">
+            <Link href="/portal/payments">
               <Button className="gradient-brand text-white border-0 shadow-lg shadow-primary/25">
                 <CreditCard className="h-4 w-4 mr-2" /> Pay Now
               </Button>
@@ -89,7 +87,7 @@ export default function TenantPortalPage() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-3 gap-3">
-        <Link href="/tenant/portal/payments">
+        <Link href="/portal/payments">
           <Card className="border-border/50 bg-card/50 hover:border-primary/20 transition-colors cursor-pointer h-full">
             <CardContent className="p-4 text-center space-y-2">
               <DollarSign className="h-6 w-6 text-primary mx-auto" />
@@ -97,7 +95,7 @@ export default function TenantPortalPage() {
             </CardContent>
           </Card>
         </Link>
-        <Link href="/tenant/portal/maintenance">
+        <Link href="/portal/maintenance">
           <Card className="border-border/50 bg-card/50 hover:border-primary/20 transition-colors cursor-pointer h-full">
             <CardContent className="p-4 text-center space-y-2">
               <Wrench className="h-6 w-6 text-amber-400 mx-auto" />
@@ -105,7 +103,7 @@ export default function TenantPortalPage() {
             </CardContent>
           </Card>
         </Link>
-        <Link href="/tenant/portal/lease">
+        <Link href="/portal/lease">
           <Card className="border-border/50 bg-card/50 hover:border-primary/20 transition-colors cursor-pointer h-full">
             <CardContent className="p-4 text-center space-y-2">
               <FileText className="h-6 w-6 text-blue-400 mx-auto" />
@@ -121,7 +119,7 @@ export default function TenantPortalPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center justify-between">
               Recent Maintenance Requests
-              <Link href="/tenant/portal/maintenance" className="text-xs text-primary font-normal">View all →</Link>
+              <Link href="/portal/maintenance" className="text-xs text-primary font-normal">View all →</Link>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -150,7 +148,7 @@ export default function TenantPortalPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center justify-between">
               Recent Payments
-              <Link href="/tenant/portal/payments" className="text-xs text-primary font-normal">View all →</Link>
+              <Link href="/portal/payments" className="text-xs text-primary font-normal">View all →</Link>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">

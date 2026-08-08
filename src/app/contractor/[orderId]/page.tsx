@@ -12,7 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useWorkOrders, useMaintenance, useUnits, useProperties, useTenants, useVendors } from "@/lib/hooks";
+import { useWorkOrders, useMaintenance, useUnits, useProperties, useTenants, useVendors, useCurrentVendor } from "@/lib/hooks";
+import { useAuthStore } from "@/lib/store";
 import { PhotoUpload } from "@/components/photo-upload";
 import toast from "react-hot-toast";
 
@@ -36,6 +37,8 @@ export default function ContractorOrderPage() {
   const { properties } = useProperties();
   const { tenants } = useTenants();
   const { vendors } = useVendors();
+  const { vendor: currentVendor, loading: vendorLoading } = useCurrentVendor();
+  const user = useAuthStore(s => s.user);
 
   const [saving, setSaving] = useState(false);
   const [costForm, setCostForm] = useState({ laborHours: "", materialsCost: "", materialsDesc: "", notes: "" });
@@ -49,6 +52,25 @@ export default function ContractorOrderPage() {
         <Wrench className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
         <h2 className="text-lg font-semibold">Work order not found</h2>
         <p className="text-sm text-muted-foreground mt-1">Check the URL or contact your property manager.</p>
+      </div>
+    );
+  }
+
+  // A work order exposes the tenant's name, phone, email, the unit address and
+  // the access instructions — so only the assigned vendor may open it. Managers
+  // and owners keep access so they can work a job on a contractor's behalf.
+  const isManager = user?.role === "manager" || user?.role === "owner" || user?.role === "super_admin";
+  const isAssignedVendor = !!currentVendor && currentVendor.id === wo.vendorId;
+
+  if (!vendorLoading && !isManager && !isAssignedVendor) {
+    return (
+      <div className="text-center py-20">
+        <AlertTriangle className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+        <h2 className="text-lg font-semibold">This job isn&apos;t assigned to you</h2>
+        <p className="text-sm text-muted-foreground mt-1">
+          Signed in as {user?.email || "unknown"}. Contact your property manager if you
+          believe this is a mistake.
+        </p>
       </div>
     );
   }

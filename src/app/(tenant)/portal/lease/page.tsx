@@ -5,19 +5,18 @@ import { FileText, Calendar, DollarSign, CheckCircle2, Clock, FileSignature, Ref
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useLeases, useTenants, useProperties, useUnits } from "@/lib/hooks";
+import { useLeases, useCurrentTenant, useProperties, useUnits } from "@/lib/hooks";
 import { ESignature } from "@/components/e-signature";
 import { format, parseISO, differenceInDays } from "date-fns";
 import toast from "react-hot-toast";
 
 export default function TenantLeasePage() {
   const { leases, updateLease } = useLeases();
-  const { tenants } = useTenants();
+  const { tenant: myTenant } = useCurrentTenant();
   const { properties } = useProperties();
   const { units } = useUnits();
   const [showSign, setShowSign] = useState(false);
 
-  const myTenant = tenants[0];
   const myLease = leases.find(l => l.tenantIds.includes(myTenant?.id || ""));
   const myProp = properties.find(p => p.id === myLease?.propertyId);
   const myUnit = units.find(u => u.id === myLease?.unitId);

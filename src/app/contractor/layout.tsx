@@ -1,9 +1,11 @@
 import React from "react";
 import { HardHat } from "lucide-react";
+import { AuthGuard } from "@/components/auth-guard";
 
 export default function ContractorLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
+    <AuthGuard>
+      <div className="min-h-screen bg-background">
       <header className="border-b border-border/50 bg-card/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
@@ -15,7 +17,8 @@ export default function ContractorLayout({ children }: { children: React.ReactNo
           </div>
         </div>
       </header>
-      <main className="max-w-4xl mx-auto px-4 py-6">{children}</main>
-    </div>
+        <main className="max-w-4xl mx-auto px-4 py-6">{children}</main>
+      </div>
+    </AuthGuard>
   );
 }

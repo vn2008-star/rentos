@@ -28,6 +28,8 @@ export interface UserProfile {
   role: UserRole;
   orgId: string;
   phone?: string;
+  /** Set on contractor accounts — links the login to a Vendor record. */
+  vendorId?: string;
   createdAt: string;
   lastLoginAt?: string;
 }

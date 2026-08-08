@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuthStore } from "./store";
 import {
   createDocument, queryDocuments, updateDocument, deleteDocument,
   subscribeToCollection, uploadMultipleFiles, Collections,
 } from "./firestore";
+import { isFirebaseConfigured } from "./demo";
 import {
   mockProperties, mockUnits, mockTenants,
   mockMaintenanceRequests, mockApplications,
@@ -35,7 +36,8 @@ function useFirestoreCollection<T>(
   const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
-    if (!user?.orgId || !enabled) {
+    // Without credentials the subscription can only fail, so don't wait on it.
+    if (!user?.orgId || !enabled || !isFirebaseConfigured()) {
       setData(mockData);
       setLoading(false);
       return;
@@ -726,4 +728,51 @@ export function useWorkOrders() {
     createWorkOrder, updateWorkOrder, removeWorkOrder,
     acceptOrder, startOrder, completeOrder, approveOrder, rejectOrder,
   };
+}
+
+// ============================================
+// Identity Hooks
+// ============================================
+// The portal pages used to hardcode `tenants[0]`, which showed every signed-in
+// tenant the first tenant's lease, payments and maintenance history. These
+// resolve the record that actually belongs to the signed-in user.
+
+function sameEmail(a?: string, b?: string): boolean {
+  return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/** The Tenant record for the signed-in user, or null if they aren't a tenant. */
+export function useCurrentTenant() {
+  const user = useAuthStore((s) => s.user);
+  const { tenants, loading } = useTenants();
+
+  const tenant = useMemo(() => {
+    if (!user) return null;
+    // userId is the authoritative link; email is the fallback for tenants who
+    // were created by a manager before they ever signed in.
+    return (
+      tenants.find((t) => t.userId && t.userId === user.id) ??
+      tenants.find((t) => sameEmail(t.email, user.email)) ??
+      null
+    );
+  }, [user, tenants]);
+
+  return { tenant, loading };
+}
+
+/** The Vendor record for the signed-in contractor, or null if they aren't one. */
+export function useCurrentVendor() {
+  const user = useAuthStore((s) => s.user);
+  const { vendors, loading } = useVendors();
+
+  const vendor = useMemo(() => {
+    if (!user) return null;
+    return (
+      vendors.find((v) => user.vendorId && v.id === user.vendorId) ??
+      vendors.find((v) => sameEmail(v.email, user.email)) ??
+      null
+    );
+  }, [user, vendors]);
+
+  return { vendor, loading };
 }

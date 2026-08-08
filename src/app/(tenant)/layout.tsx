@@ -6,15 +6,24 @@ import { usePathname, useRouter } from "next/navigation";
 import { Home, CreditCard, Wrench, FileText, LogOut, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store";
+import { AuthGuard } from "@/components/auth-guard";
 
 const navItems = [
-  { label: "Dashboard", href: "/tenant/portal", icon: Home },
-  { label: "Payments", href: "/tenant/portal/payments", icon: CreditCard },
-  { label: "Maintenance", href: "/tenant/portal/maintenance", icon: Wrench },
-  { label: "My Lease", href: "/tenant/portal/lease", icon: FileText },
+  { label: "Dashboard", href: "/portal", icon: Home },
+  { label: "Payments", href: "/portal/payments", icon: CreditCard },
+  { label: "Maintenance", href: "/portal/maintenance", icon: Wrench },
+  { label: "My Lease", href: "/portal/lease", icon: FileText },
 ];
 
 export default function TenantLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthGuard>
+      <TenantShell>{children}</TenantShell>
+    </AuthGuard>
+  );
+}
+
+function TenantShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const user = useAuthStore(s => s.user);

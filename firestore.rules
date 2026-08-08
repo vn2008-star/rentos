@@ -23,6 +23,16 @@ service cloud.firestore {
       return profile.role in ['super_admin', 'owner', 'manager'];
     }
 
+    // Contractor accounts carry a vendorId linking the login to a Vendor record.
+    // get() with a default keeps this from erroring on profiles without the field.
+    function callerVendorId() {
+      return getUserProfile().get('vendorId', '');
+    }
+
+    function isAssignedVendor(vendorId) {
+      return isSignedIn() && vendorId != null && callerVendorId() == vendorId;
+    }
+
     // ============================================
     // User Profiles
     // ============================================
@@ -127,6 +137,34 @@ service cloud.firestore {
       allow read: if true;  // Public listing pages
       allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
       allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Sublets (orgId-scoped)
+    // ============================================
+    // Tenants create sublets for their own unit from /portal/sublet; managers
+    // administer them from /sublets. Both live in the same org.
+    match /sublets/{subletId} {
+      allow read: if belongsToOrg(resource.data.orgId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId);
+      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Work Orders (orgId-scoped)
+    // ============================================
+    // Org staff manage all work orders; a contractor reaches only the ones
+    // assigned to their own vendor record.
+    match /work_orders/{workOrderId} {
+      allow read: if belongsToOrg(resource.data.orgId)
+                  || isAssignedVendor(resource.data.vendorId);
+      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
+      allow update: if belongsToOrg(resource.data.orgId)
+                    || (isAssignedVendor(resource.data.vendorId)
+                        && request.resource.data.vendorId == resource.data.vendorId
+                        && request.resource.data.orgId == resource.data.orgId);
       allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
     }
   }

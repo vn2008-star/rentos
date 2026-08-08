@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PhotoUpload } from "@/components/photo-upload";
-import { useMaintenance, useTenants, useUnits, useProperties } from "@/lib/hooks";
+import { useMaintenance, useCurrentTenant, useUnits, useProperties } from "@/lib/hooks";
 import type { MaintenanceCategory, MaintenancePriority } from "@/lib/types";
 import toast from "react-hot-toast";
 
@@ -26,7 +26,7 @@ const statusConfig: Record<string, { color: string; icon: typeof Clock }> = {
 
 export default function TenantMaintenancePage() {
   const { requests, addRequest } = useMaintenance();
-  const { tenants } = useTenants();
+  const { tenant: currentTenant } = useCurrentTenant();
   const { units } = useUnits();
   const { properties } = useProperties();
   const [showAdd, setShowAdd] = useState(false);
@@ -38,7 +38,7 @@ export default function TenantMaintenancePage() {
     priority: "routine" as MaintenancePriority,
   });
 
-  const myTenant = tenants[0];
+  const myTenant = currentTenant;
   const myUnit = units.find(u => u.currentTenantId === myTenant?.id) || units[0];
   const myRequests = requests.filter(r => r.tenantId === myTenant?.id);
 

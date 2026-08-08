@@ -3,11 +3,19 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
-import { Building2, Loader2 } from "lucide-react";
+import type { UserRole } from "@/lib/types";
+import { Building2, Loader2, ShieldX } from "lucide-react";
 
-export function AuthGuard({ children }: { children: React.ReactNode }) {
+export function AuthGuard({
+  children,
+  roles,
+}: {
+  children: React.ReactNode;
+  /** When set, the signed-in user's role must be one of these. */
+  roles?: UserRole[];
+}) {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isLoading, user } = useAuthStore();
 
   React.useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -33,6 +41,23 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (!isAuthenticated) {
     return null; // Will redirect
+  }
+
+  if (roles && user && !roles.includes(user.role)) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background p-4">
+        <div className="text-center space-y-3 max-w-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive/10">
+            <ShieldX className="h-7 w-7 text-destructive" />
+          </div>
+          <h2 className="text-lg font-semibold font-heading">Not available for your account</h2>
+          <p className="text-sm text-muted-foreground">
+            This area is limited to {roles.join(" or ")} accounts. You are signed in as{" "}
+            <span className="font-medium">{user.role}</span>.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return <>{children}</>;

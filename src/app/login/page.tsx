@@ -10,11 +10,27 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { loginWithEmail, loginWithGoogle, resetPassword } from "@/lib/auth";
 import { useAuthStore } from "@/lib/store";
+import { isDemoAvailable, type DemoPersona } from "@/lib/demo";
 import Link from "next/link";
+
+const DEMO_PERSONAS: { persona: DemoPersona; label: string; href: string }[] = [
+  { persona: "manager", label: "Manager", href: "/dashboard" },
+  { persona: "owner", label: "Owner", href: "/owner" },
+  { persona: "tenant", label: "Tenant", href: "/portal" },
+  { persona: "contractor", label: "Contractor", href: "/contractor/wo-1" },
+];
 
 export default function LoginPage() {
   const router = useRouter();
   const setUser = useAuthStore((s) => s.setUser);
+  const loginAsDemo = useAuthStore((s) => s.loginAsDemo);
+  // Inlined at build time, so server and client agree — safe to read during render.
+  const demoReady = isDemoAvailable();
+
+  const handleDemoLogin = (persona: DemoPersona, href: string) => {
+    loginAsDemo(persona);
+    router.push(href);
+  };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -192,6 +208,33 @@ export default function LoginPage() {
               </svg>
               Continue with Google
             </Button>
+
+            {demoReady && (
+              <div className="space-y-3 pt-1">
+                <div className="relative">
+                  <Separator />
+                  <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-3 text-xs text-muted-foreground">
+                    no Firebase configured
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {DEMO_PERSONAS.map(({ persona, label, href }) => (
+                    <Button
+                      key={persona}
+                      variant="outline"
+                      className="h-9 text-xs"
+                      onClick={() => handleDemoLogin(persona, href)}
+                      disabled={loading}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-center text-[11px] text-muted-foreground">
+                  Explore with sample data — no account needed
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

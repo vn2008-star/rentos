@@ -1,0 +1,35 @@
+rules_version = '2';
+
+// Storage Security Rules for RentOS
+//
+// Unlike the DHS app (which uploads only through the Admin SDK and denies all
+// client writes), RentOS uploads directly from the browser via the client
+// Storage SDK — see uploadFile() in src/lib/firestore.ts. So these rules are
+// the only thing standing between a signed-in user and the bucket.
+//
+// Object paths are keyed by org: {orgId}/properties/…, {orgId}/units/…,
+// {orgId}/maintenance/… — which lets us scope writes to the caller's own org.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function callerOrgId() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.orgId;
+    }
+
+    match /{orgId}/{allPaths=**} {
+      // Listing and unit photos are rendered on public pages, so reads stay open.
+      allow read: if true;
+
+      // Writes: signed in, writing into your own org's prefix, images only, <10MB.
+      allow write: if request.auth != null
+                   && callerOrgId() == orgId
+                   && request.resource.size < 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Deny everything outside the org-scoped prefix.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
