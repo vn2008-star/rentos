@@ -3,13 +3,20 @@
   <!--
     One shape doing three jobs.
 
-    The circle is a bicycle wheel — Davis is a cycling town, and the bike is how
-    most tenants here actually arrive. The same lines that read as spokes read
-    as meridians and parallels, which makes it a globe: tenants from everywhere.
-    The roof over it is the housing.
+    A bicycle wheel — thin rim, ten fine spokes, small hub — because Davis rides,
+    and it is how most tenants here actually arrive. Over the spokes, a meridian
+    and a parallel turn the same circle into a globe: tenants from everywhere.
+    The roof above is the housing.
 
-    Drawn as strokes on a 64px grid so it survives being shrunk to a 16px
-    favicon: no fills to close up, no detail finer than 2px.
+    Spoke count is the whole design. Two earlier cuts failed on it: four spokes
+    let the globe's arcs dominate and the mark read as a globe under a roof;
+    three thick spokes read as a steering wheel. A bicycle wheel is identified
+    by MANY THIN spokes against a thin rim, so that is what this is. Do not
+    "simplify" by reducing them.
+
+    Strokes only, on a 64px grid. The spokes go soft below about 24px, which is
+    accepted: at favicon size the silhouette — circle under a roof — is what
+    carries, and public/icons/* are rendered from this at real sizes anyway.
   -->
   <defs>
     <linearGradient id="rentos-brand" x1="0" y1="0" x2="1" y2="1">
@@ -21,23 +28,32 @@
 
   <g fill="none" stroke="url(#rentos-brand)" stroke-linecap="round" stroke-linejoin="round">
     <!-- Roof -->
-    <path d="M11 21 L32 7 L53 21" stroke-width="4.5"/>
+    <path d="M10 21 L32 6.5 L54 21" stroke-width="5"/>
 
-    <!-- Tyre -->
-    <circle cx="32" cy="40" r="17" stroke-width="4"/>
-
-    <!-- Spokes, which are also the globe's grid -->
-    <g stroke-width="2" opacity="0.9">
-      <line x1="32" y1="23" x2="32" y2="57"/>
-      <line x1="15" y1="40" x2="49" y2="40"/>
-      <line x1="20" y1="28" x2="44" y2="52"/>
-      <line x1="44" y1="28" x2="20" y2="52"/>
-      <!-- Meridian and parallel: the two arcs that turn a wheel into a world -->
-      <ellipse cx="32" cy="40" rx="8" ry="17"/>
-      <ellipse cx="32" cy="40" rx="17" ry="8"/>
+    <!-- Spokes -->
+    <g stroke-width="1.4" opacity="0.95">
+      <line x1="32.00" y1="36.50" x2="32.00" y2="24.50"/>
+      <line x1="34.06" y1="37.17" x2="41.11" y2="27.46"/>
+      <line x1="35.33" y1="38.92" x2="46.74" y2="35.21"/>
+      <line x1="35.33" y1="41.08" x2="46.74" y2="44.79"/>
+      <line x1="34.06" y1="42.83" x2="41.11" y2="52.54"/>
+      <line x1="32.00" y1="43.50" x2="32.00" y2="55.50"/>
+      <line x1="29.94" y1="42.83" x2="22.89" y2="52.54"/>
+      <line x1="28.67" y1="41.08" x2="17.26" y2="44.79"/>
+      <line x1="28.67" y1="38.92" x2="17.26" y2="35.21"/>
+      <line x1="29.94" y1="37.17" x2="22.89" y2="27.46"/>
     </g>
 
+    <!-- The world, sitting over the spokes -->
+    <g stroke-width="2">
+      <ellipse cx="32" cy="40" rx="7.5" ry="15.5"/>
+      <ellipse cx="32" cy="40" rx="15.5" ry="7.5"/>
+    </g>
+
+    <!-- Rim -->
+    <circle cx="32" cy="40" r="17" stroke-width="3.6"/>
+
     <!-- Hub -->
-    <circle cx="32" cy="40" r="3.2" stroke-width="3"/>
+    <circle cx="32" cy="40" r="3.4" stroke-width="2.8"/>
   </g>
 </svg>

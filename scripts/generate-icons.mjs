@@ -28,17 +28,25 @@ const outDir = join(root, "public", "icons");
 /** The mark, drawn on a 64x64 grid. Kept in sync with public/icon.svg. */
 const MARK = `
   <g fill="none" stroke="white" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M11 21 L32 7 L53 21" stroke-width="4.5"/>
-    <circle cx="32" cy="40" r="17" stroke-width="4"/>
-    <g stroke-width="2" opacity="0.92">
-      <line x1="32" y1="23" x2="32" y2="57"/>
-      <line x1="15" y1="40" x2="49" y2="40"/>
-      <line x1="20" y1="28" x2="44" y2="52"/>
-      <line x1="44" y1="28" x2="20" y2="52"/>
-      <ellipse cx="32" cy="40" rx="8" ry="17"/>
-      <ellipse cx="32" cy="40" rx="17" ry="8"/>
+    <path d="M10 21 L32 6.5 L54 21" stroke-width="5"/>
+    <g stroke-width="1.4" opacity="0.95">
+      <line x1="32.00" y1="36.50" x2="32.00" y2="24.50"/>
+      <line x1="34.06" y1="37.17" x2="41.11" y2="27.46"/>
+      <line x1="35.33" y1="38.92" x2="46.74" y2="35.21"/>
+      <line x1="35.33" y1="41.08" x2="46.74" y2="44.79"/>
+      <line x1="34.06" y1="42.83" x2="41.11" y2="52.54"/>
+      <line x1="32.00" y1="43.50" x2="32.00" y2="55.50"/>
+      <line x1="29.94" y1="42.83" x2="22.89" y2="52.54"/>
+      <line x1="28.67" y1="41.08" x2="17.26" y2="44.79"/>
+      <line x1="28.67" y1="38.92" x2="17.26" y2="35.21"/>
+      <line x1="29.94" y1="37.17" x2="22.89" y2="27.46"/>
     </g>
-    <circle cx="32" cy="40" r="3.2" stroke-width="3"/>
+    <g stroke-width="2">
+      <ellipse cx="32" cy="40" rx="7.5" ry="15.5"/>
+      <ellipse cx="32" cy="40" rx="15.5" ry="7.5"/>
+    </g>
+    <circle cx="32" cy="40" r="17" stroke-width="3.6"/>
+    <circle cx="32" cy="40" r="3.4" stroke-width="2.8"/>
   </g>
 `;
 

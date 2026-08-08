@@ -23,20 +23,23 @@ export function RentosMark({ className }: { className?: string }) {
       aria-label="RentOS"
     >
       {/* Roof */}
-      <path d="M11 21 L32 7 L53 21" strokeWidth={4.5} />
+      <path d="M10 21 L32 6.5 L54 21" strokeWidth={5} />
       {/* Tyre */}
-      <circle cx={32} cy={40} r={17} strokeWidth={4} />
-      {/* Spokes, which are also the globe's grid */}
-      <g strokeWidth={2} opacity={0.9}>
-        <line x1={32} y1={23} x2={32} y2={57} />
-        <line x1={15} y1={40} x2={49} y2={40} />
-        <line x1={20} y1={28} x2={44} y2={52} />
-        <line x1={44} y1={28} x2={20} y2={52} />
+      <circle cx={32} cy={40} r={17} strokeWidth={5} />
+      {/* The world, kept quiet so the wheel reads first */}
+      <g strokeWidth={1.5} opacity={0.55}>
         <ellipse cx={32} cy={40} rx={8} ry={17} />
         <ellipse cx={32} cy={40} rx={17} ry={8} />
+        <line x1={15} y1={40} x2={49} y2={40} />
+      </g>
+      {/* Three spokes, hub to rim */}
+      <g strokeWidth={3}>
+        <line x1={32} y1={35.5} x2={32} y2={23} />
+        <line x1={28.1} y1={42.25} x2={17.3} y2={48.5} />
+        <line x1={35.9} y1={42.25} x2={46.7} y2={48.5} />
       </g>
       {/* Hub */}
-      <circle cx={32} cy={40} r={3.2} strokeWidth={3} />
+      <circle cx={32} cy={40} r={4.5} strokeWidth={3.5} />
     </svg>
   );
 }
