@@ -62,7 +62,19 @@ export default function ContractorOrderPage() {
   const isManager = user?.role === "manager" || user?.role === "owner" || user?.role === "super_admin";
   const isAssignedVendor = !!currentVendor && currentVendor.id === wo.vendorId;
 
-  if (!vendorLoading && !isManager && !isAssignedVendor) {
+  // Resolve identity BEFORE rendering: waiting until the vendor record loads
+  // would otherwise flash the tenant's contact details and access instructions
+  // to whoever opened the URL.
+  if (!isManager && vendorLoading) {
+    return (
+      <div className="flex items-center justify-center py-20 text-sm text-muted-foreground gap-2">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Verifying assignment...
+      </div>
+    );
+  }
+
+  if (!isManager && !isAssignedVendor) {
     return (
       <div className="text-center py-20">
         <AlertTriangle className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
