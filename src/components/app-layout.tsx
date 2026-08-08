@@ -6,7 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Building2, Home, Users, FileText, Wrench, DollarSign,
   Megaphone, ArrowLeftRight, Settings, LogOut, ChevronLeft, ChevronRight,
-  Bell, Search, Plus, BedDouble, Menu, X, HardHat, BarChart3, Eye, Briefcase
+  Bell, Search, Plus, BedDouble, Menu, X, HardHat, BarChart3, Eye, Briefcase,
+  CalendarDays, ClipboardCheck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -16,6 +17,7 @@ import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider,
 } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/lib/store";
+import { NotificationBell } from "@/components/notification-bell";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -23,6 +25,8 @@ const navItems = [
   { label: "Units", href: "/units", icon: Home },
   { label: "Tenants", href: "/tenants", icon: Users },
   { label: "Applications", href: "/applications", icon: FileText, badge: 2 },
+  { label: "Calendar", href: "/calendar", icon: CalendarDays },
+  { label: "Inspections", href: "/inspections", icon: ClipboardCheck },
   { label: "Maintenance", href: "/maintenance", icon: Wrench, badge: 3 },
   { label: "Vendors", href: "/vendors", icon: HardHat },
   { label: "Owner View", href: "/owner", icon: Eye },
@@ -226,10 +230,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2 ml-auto">
-              <Button variant="ghost" size="icon" className="h-9 w-9 relative">
-                <Bell className="h-[18px] w-[18px]" />
-                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full gradient-brand ring-2 ring-card" />
-              </Button>
+              <NotificationBell />
               <Button size="sm" className="gradient-brand text-white border-0 shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-shadow gap-1.5">
                 <Plus className="h-4 w-4" />
                 <span className="hidden sm:inline">Quick Add</span>

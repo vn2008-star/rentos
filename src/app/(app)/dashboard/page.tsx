@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useProperties, useUnits, useTenants, useMaintenance, useApplications } from "@/lib/hooks";
 import { useAuthStore } from "@/lib/store";
+import { PendingTasks } from "@/components/pending-tasks";
 import { mockDashboardStats } from "@/lib/mock-data";
 import Link from "next/link";
 
@@ -40,7 +41,7 @@ const maintenanceStatusColors: Record<string, string> = {
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);
-  const { properties, isLive: propLive } = useProperties();
+  const { properties, isLive: propLive, error: propError } = useProperties();
   const { units } = useUnits();
   const { tenants } = useTenants();
   const { requests: maintenanceRequests } = useMaintenance();
@@ -79,8 +80,18 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 mt-2 sm:mt-0">
-          <Badge variant="outline" className={`gap-1.5 py-1 px-3 text-xs ${isLive ? "text-emerald-400 border-emerald-500/30" : "text-amber-400 border-amber-500/30"}`}>
-            {isLive ? <><Wifi className="h-3 w-3" /> Live Data</> : <><WifiOff className="h-3 w-3" /> Demo Mode</>}
+          {/* Three distinct states — a failed read must never read as "Demo Mode",
+              which would imply the numbers on screen are intentional samples. */}
+          <Badge variant="outline" className={`gap-1.5 py-1 px-3 text-xs ${
+            propError ? "text-red-400 border-red-500/30"
+              : isLive ? "text-emerald-400 border-emerald-500/30"
+              : "text-amber-400 border-amber-500/30"
+          }`}>
+            {propError
+              ? <><WifiOff className="h-3 w-3" /> Connection Error</>
+              : isLive
+                ? <><Wifi className="h-3 w-3" /> Live Data</>
+                : <><WifiOff className="h-3 w-3" /> Demo Mode</>}
           </Badge>
         </div>
       </div>
@@ -193,6 +204,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Everything that needs chasing, derived from the records themselves. */}
+      <PendingTasks />
 
       {/* Bottom Row */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

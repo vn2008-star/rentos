@@ -82,7 +82,8 @@ export function subscribeToCollection<T>(
   collectionName: string,
   orgId: string,
   callback: (docs: (T & { id: string })[]) => void,
-  constraints: QueryConstraint[] = []
+  constraints: QueryConstraint[] = [],
+  onError?: (err: Error) => void
 ): Unsubscribe {
   const q = query(
     collection(db, collectionName),
@@ -93,7 +94,10 @@ export function subscribeToCollection<T>(
     const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as T & { id: string }));
     callback(docs);
   }, (err) => {
+    // Callers need to know: a denied or failed read must not be mistaken for
+    // "this org has no records".
     console.error(`Subscription error on ${collectionName}:`, err);
+    onError?.(err);
   });
 }
 
@@ -139,4 +143,10 @@ export const Collections = {
   LISTINGS: "listings",
   SUBLETS: "sublets",
   WORK_ORDERS: "work_orders",
+  NOTIFICATIONS: "notifications",
+  INSPECTIONS: "inspections",
+  KEYS: "keys",
+  LOCK_CHANGES: "lock_changes",
+  UNIT_NOTES: "unit_notes",
+  CALENDAR_EVENTS: "calendar_events",
 } as const;

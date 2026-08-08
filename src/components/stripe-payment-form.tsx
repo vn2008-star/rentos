@@ -12,6 +12,10 @@ interface StripePaymentFormProps {
   description: string;
   leaseId: string;
   tenantId: string;
+  /** Scopes the resulting transaction. The webhook cannot record a payment without it. */
+  orgId: string;
+  /** Where Stripe sends its hosted receipt. */
+  email?: string;
   onSuccess: (paymentId: string) => void;
   onError?: (error: string) => void;
   className?: string;
@@ -26,6 +30,8 @@ export function StripePaymentForm({
   description,
   leaseId,
   tenantId,
+  orgId,
+  email,
   onSuccess,
   onError,
   className,
@@ -60,6 +66,8 @@ export function StripePaymentForm({
           amount: Math.round(amount * 100), // to cents
           tenantId,
           leaseId,
+          orgId,
+          email,
           type: "rent",
           description,
         }),

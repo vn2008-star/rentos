@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { tenantId, email } = await req.json();
+    const { tenantId, email, orgId } = await req.json();
 
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 
@@ -26,14 +26,15 @@ export async function POST(req: NextRequest) {
     if (!customer) {
       customer = await stripe.customers.create({
         email,
-        metadata: { tenantId },
+        metadata: { tenantId, orgId },
       });
     }
 
     const setupIntent = await stripe.setupIntents.create({
       customer: customer.id,
       payment_method_types: ["card"],
-      metadata: { tenantId },
+      // The webhook uses tenantId to attach the saved card to the right tenant.
+      metadata: { tenantId, orgId },
     });
 
     return NextResponse.json({

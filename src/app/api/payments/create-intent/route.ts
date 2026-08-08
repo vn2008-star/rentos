@@ -6,7 +6,8 @@ import { NextRequest, NextResponse } from "next/server";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { amount, tenantId, leaseId, type, description } = await req.json();
+    const { amount, tenantId, leaseId, type, description, orgId, email } =
+      await req.json();
 
     if (!amount || amount < 100) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
@@ -29,12 +30,17 @@ export async function POST(req: NextRequest) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount, // in cents
       currency: "usd",
+      // The webhook reads these back — orgId in particular, without which the
+      // resulting transaction cannot be scoped to an organization.
       metadata: {
         tenantId,
         leaseId,
         type,
+        orgId,
       },
       description: description || `RentOS ${type} payment`,
+      // Stripe emails its own hosted receipt on success.
+      ...(email ? { receipt_email: email } : {}),
       automatic_payment_methods: {
         enabled: true,
       },

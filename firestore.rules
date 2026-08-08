@@ -14,13 +14,19 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    // A caller with no profile document yet (first sign-in, before the client
+    // writes it) must not error out the whole rule — treat them as unprivileged.
+    function hasProfile() {
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function belongsToOrg(orgId) {
-      return isSignedIn() && getUserProfile().orgId == orgId;
+      return hasProfile() && getUserProfile().orgId == orgId;
     }
 
     function isOwnerOrManager() {
-      let profile = getUserProfile();
-      return profile.role in ['super_admin', 'owner', 'manager'];
+      return getUserProfile().role in ['super_admin', 'owner', 'manager'];
     }
 
     // Staff roles only. Contractors and tenants also carry the org's orgId (they
@@ -41,16 +47,45 @@ service cloud.firestore {
     }
 
     function isAssignedVendor(vendorId) {
-      return isSignedIn() && vendorId != null && callerVendorId() == vendorId;
+      return hasProfile() && vendorId != null && callerVendorId() == vendorId;
+    }
+
+    // Tenant accounts carry a tenantId linking the login to a Tenant record.
+    // Rules cannot query, so this is the only way to scope a tenant to their own
+    // lease, payments and requests instead of the whole organization's.
+    function callerTenantId() {
+      return getUserProfile().get('tenantId', '');
+    }
+
+    function isSelfTenant(tenantId) {
+      return hasProfile() && tenantId != null && callerTenantId() == tenantId;
     }
 
     // ============================================
     // User Profiles
     // ============================================
+    // orgId, role, tenantId and vendorId are the inputs to every authorization
+    // decision below. If a caller could write them freely they could simply
+    // grant themselves manager access to any organization, which would make the
+    // rest of this file decorative.
+    //
+    // Creation is allowed only into an organization that does not exist yet —
+    // i.e. a new signup founding their own org. Joining an EXISTING org must go
+    // through the Admin SDK (scripts/link-user-to-org.ts), which bypasses rules.
     match /users/{userId} {
       allow read: if isSignedIn() && request.auth.uid == userId;
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn() && request.auth.uid == userId;
+
+      allow create: if isSignedIn()
+                    && request.auth.uid == userId
+                    && !exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId));
+
+      // Everything else about a profile is editable; the privilege fields are not.
+      allow update: if isSignedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.orgId == resource.data.orgId
+                    && request.resource.data.role == resource.data.role
+                    && request.resource.data.get('tenantId', '') == resource.data.get('tenantId', '')
+                    && request.resource.data.get('vendorId', '') == resource.data.get('vendorId', '');
     }
 
     // ============================================
@@ -58,125 +93,247 @@ service cloud.firestore {
     // ============================================
     match /organizations/{orgId} {
       allow read: if belongsToOrg(orgId);
-      allow create: if isSignedIn();
+      // Only for a brand-new org being founded by its first user.
+      allow create: if isSignedIn() && !exists(/databases/$(database)/documents/organizations/$(orgId));
       allow update: if belongsToOrg(orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Properties (orgId-scoped)
+    // Properties (staff only)
     // ============================================
+    // Tenants have no business enumerating the portfolio. Public browsing of
+    // available units happens through /listings, which is world-readable below.
     match /properties/{propertyId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Units (orgId-scoped)
+    // Units (staff only)
     // ============================================
     match /units/{unitId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Tenants (orgId-scoped)
+    // Tenants
     // ============================================
+    // Staff see everyone in the org. A tenant sees only their own record —
+    // otherwise every tenant could read every other tenant's email, phone and
+    // emergency contact.
     match /tenants/{tenantId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId) || isSelfTenant(tenantId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      // A tenant may maintain their own contact details, but must not move
+      // themselves between organizations.
+      allow update: if isOrgStaff(resource.data.orgId)
+                    || (isSelfTenant(tenantId)
+                        && request.resource.data.orgId == resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Leases (orgId-scoped)
+    // Leases
     // ============================================
+    // A tenant reads only leases they are named on.
     match /leases/{leaseId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId)
+                  || (hasProfile() && callerTenantId() in resource.data.tenantIds);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Applications (orgId-scoped)
+    // Applications
     // ============================================
+    // Prospective renters are not signed in and have no org, so creation is open
+    // — but the payload must name a real organization, which stops applications
+    // being written into arbitrary or non-existent orgs.
     match /applications/{appId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn();
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId);
+      allow create: if exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId));
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Maintenance Requests (orgId-scoped)
+    // Maintenance Requests
     // ============================================
+    // /maintenance/report is a public page — a tenant without an account, or a
+    // passer-by reporting a hazard, must be able to file. Creation is therefore
+    // unauthenticated but validated: real org, sane status, no photos of
+    // someone else's making.
     match /maintenance/{requestId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId)
+                  || isSelfTenant(resource.data.get('tenantId', ''));
+      allow create: if exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId))
+                    && request.resource.data.status == 'submitted'
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() > 0
+                    && request.resource.data.title.size() <= 200
+                    && request.resource.data.description is string
+                    && request.resource.data.description.size() <= 5000;
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Vendors (orgId-scoped)
+    // Vendors (staff only)
     // ============================================
     match /vendors/{vendorId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId) || isAssignedVendor(vendorId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Transactions (orgId-scoped)
+    // Transactions
     // ============================================
+    // The Stripe webhook is the sole writer, and it uses the Admin SDK, which
+    // bypasses these rules entirely. No client may write a payment record —
+    // otherwise a tenant could insert a completed transaction and mark their own
+    // rent paid. Tenants read only their own payment history.
     match /transactions/{txId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId)
+                  || isSelfTenant(resource.data.get('tenantId', ''));
+      allow create, update, delete: if false;
     }
 
     // ============================================
-    // Listings (orgId-scoped)
+    // Listings
     // ============================================
     match /listings/{listingId} {
       allow read: if true;  // Public listing pages
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Sublets (orgId-scoped)
+    // Sublets
     // ============================================
     // Tenants create sublets for their own unit from /portal/sublet; managers
-    // administer them from /sublets. Both live in the same org.
+    // administer them from /sublets.
     match /sublets/{subletId} {
-      allow read: if belongsToOrg(resource.data.orgId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow read: if isOrgStaff(resource.data.orgId)
+                  || isSelfTenant(resource.data.get('tenantId', ''));
+      allow create: if isOrgStaff(request.resource.data.orgId)
+                    || (isSelfTenant(request.resource.data.get('tenantId', ''))
+                        && belongsToOrg(request.resource.data.orgId));
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
-    // Work Orders (orgId-scoped)
+    // Work Orders
     // ============================================
     // Org staff manage all work orders; a contractor reaches only the ones
     // assigned to their own vendor record.
     match /work_orders/{workOrderId} {
       allow read: if isOrgStaff(resource.data.orgId)
                   || isAssignedVendor(resource.data.vendorId);
-      allow create: if isSignedIn() && isOrgStaff(request.resource.data.orgId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      // A contractor may report progress, but must not reassign the job to
+      // themselves, move it between orgs, or rewrite what it costs.
       allow update: if isOrgStaff(resource.data.orgId)
                     || (isAssignedVendor(resource.data.vendorId)
                         && request.resource.data.vendorId == resource.data.vendorId
-                        && request.resource.data.orgId == resource.data.orgId);
+                        && request.resource.data.orgId == resource.data.orgId
+                        && request.resource.data.get('cost', 0) == resource.data.get('cost', 0));
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Inspections
+    // ============================================
+    // A tenant reads the inspections of their own tenancy — move-in and move-out
+    // condition reports are the evidence behind any deposit deduction, so
+    // withholding them from the person being charged would be indefensible.
+    // Only staff may record findings.
+    match /inspections/{inspectionId} {
+      allow read: if isOrgStaff(resource.data.orgId)
+                  || isSelfTenant(resource.data.get('tenantId', ''));
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Keys & Lock Changes (staff only)
+    // ============================================
+    // Who holds which key, and when locks were last changed, is security
+    // information about the whole building. Tenants get none of it.
+    match /keys/{keyId} {
+      allow read: if isOrgStaff(resource.data.orgId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    match /lock_changes/{changeId} {
+      allow read: if isOrgStaff(resource.data.orgId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      // A rekey history that can be edited away is not an audit trail.
+      allow delete: if false;
+    }
+
+    // ============================================
+    // Unit Notes (staff only)
+    // ============================================
+    // Internal record-keeping, including complaint history about tenants.
+    // Never readable by tenants.
+    match /unit_notes/{noteId} {
+      allow read: if isOrgStaff(resource.data.orgId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Calendar (staff only)
+    // ============================================
+    // The org's operational schedule reveals when units are empty and when
+    // people will be on site.
+    match /calendar_events/{eventId} {
+      allow read: if isOrgStaff(resource.data.orgId);
+      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId);
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Notifications
+    // ============================================
+    // Written server-side by the Stripe webhook via the Admin SDK. Clients only
+    // read their own and mark them read — never create, so a tenant cannot
+    // fabricate a "rent received" notice.
+    match /notifications/{notificationId} {
+      // Staff read everything in their org, including tenant-directed notices —
+      // they are about that org's own payments, so there is nothing to hide,
+      // and a query scoped only by orgId would otherwise fail wholesale the
+      // moment one tenant notification existed. A tenant reads only their own.
+      allow read: if isOrgStaff(resource.data.orgId)
+                  || (resource.data.audience == 'tenant'
+                      && isSelfTenant(resource.data.get('tenantId', '')));
+
+      allow create: if false;
+
+      // Only the read flag may change.
+      allow update: if (isOrgStaff(resource.data.orgId)
+                        || (resource.data.audience == 'tenant'
+                            && isSelfTenant(resource.data.get('tenantId', ''))))
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['read']);
+
+      allow delete: if isOrgStaff(resource.data.orgId);
     }
   }
 }

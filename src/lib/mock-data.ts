@@ -1,6 +1,7 @@
 import type {
   Property, Unit, Tenant, MaintenanceRequest, DashboardStats, RentalApplication,
   Lease, Transaction, PaymentRecord, Listing, Sublet, Vendor, WorkOrder,
+  Notification, Inspection, KeyRecord, LockChange, UnitNote, CalendarEvent,
 } from "./types";
 
 // ============================================
@@ -283,4 +284,88 @@ export const mockWorkOrders: WorkOrder[] = [
     managerApproval: { approved: true, approvedBy: "user-1", approvedAt: "2025-01-11T10:00:00Z", notes: "Good work. Invoice matches estimate." },
     createdAt: "2025-01-08T00:00:00Z", updatedAt: "2025-01-11T10:00:00Z",
   },
+];
+
+export const mockNotifications: Notification[] = [
+  {
+    id: "notif-1", orgId: "org-1", kind: "payment_failed", audience: "manager",
+    title: "Rent payment failed",
+    body: "James Rodriguez's $1,400 rent payment was declined — card was declined.",
+    href: "/financials", read: false, createdAt: "2025-01-12T09:14:00Z",
+  },
+  {
+    id: "notif-2", orgId: "org-1", kind: "maintenance_urgent", audience: "manager",
+    title: "Urgent maintenance request",
+    body: "No hot water reported at Unit 102 — marked urgent.",
+    href: "/maintenance", read: false, createdAt: "2025-01-11T16:02:00Z",
+  },
+  {
+    id: "notif-3", orgId: "org-1", kind: "payment_received", audience: "manager",
+    title: "Rent received",
+    body: "Sarah Chen paid $1,800 for Unit 101.",
+    href: "/financials", read: true, createdAt: "2025-01-01T08:30:00Z",
+  },
+];
+
+export const mockInspections: Inspection[] = [
+  {
+    id: "insp-1", orgId: "org-1", unitId: "unit-3", propertyId: "prop-1",
+    type: "turnover", status: "scheduled", scheduledFor: "2025-01-20T10:00:00Z",
+    inspectorName: "Davis Housing Services",
+    areas: [], createdAt: "2025-01-10T00:00:00Z", updatedAt: "2025-01-10T00:00:00Z",
+  },
+  {
+    id: "insp-2", orgId: "org-1", unitId: "unit-1", propertyId: "prop-1",
+    leaseId: "lease-1", tenantId: "tenant-1",
+    type: "move_in", status: "completed",
+    scheduledFor: "2024-09-01T09:00:00Z", completedAt: "2024-09-01T10:30:00Z",
+    inspectorName: "Davis Housing Services",
+    areas: [
+      { name: "Kitchen", condition: "excellent", notes: "New appliances, no marks.", photos: [] },
+      { name: "Bathroom", condition: "good", notes: "Minor grout wear around tub.", photos: [] },
+      { name: "Bedroom 1", condition: "excellent", photos: [] },
+      { name: "Living Room", condition: "good", notes: "Small scuff by the door frame.", photos: [] },
+    ],
+    summary: "Unit in very good condition at move-in. Scuff noted and photographed.",
+    createdAt: "2024-08-28T00:00:00Z", updatedAt: "2024-09-01T10:30:00Z",
+  },
+  {
+    id: "insp-3", orgId: "org-1", unitId: "unit-6", propertyId: "prop-1",
+    type: "move_out", status: "in_progress", scheduledFor: "2025-01-14T14:00:00Z",
+    inspectorName: "Davis Housing Services",
+    areas: [
+      { name: "Kitchen", condition: "fair", notes: "Burn mark on countertop.", photos: [], estimatedCost: 180 },
+      { name: "Carpet", condition: "poor", notes: "Staining in living area — needs professional clean.", photos: [], estimatedCost: 250 },
+    ],
+    depositDeduction: 430,
+    createdAt: "2025-01-05T00:00:00Z", updatedAt: "2025-01-14T14:45:00Z",
+  },
+];
+
+export const mockKeys: KeyRecord[] = [
+  { id: "key-1", orgId: "org-1", unitId: "unit-1", propertyId: "prop-1", label: "Front door — Key A", kind: "physical", copies: 2, status: "issued", holderType: "tenant", holderId: "tenant-1", holderName: "Sarah Chen", issuedAt: "2024-09-01T00:00:00Z", createdAt: "2024-08-15T00:00:00Z", updatedAt: "2024-09-01T00:00:00Z" },
+  { id: "key-2", orgId: "org-1", unitId: "unit-1", propertyId: "prop-1", label: "Mailbox 101", kind: "mailbox", copies: 1, status: "issued", holderType: "tenant", holderId: "tenant-1", holderName: "Sarah Chen", issuedAt: "2024-09-01T00:00:00Z", createdAt: "2024-08-15T00:00:00Z", updatedAt: "2024-09-01T00:00:00Z" },
+  { id: "key-3", orgId: "org-1", unitId: "unit-3", propertyId: "prop-1", label: "Front door — Key A", kind: "physical", copies: 3, status: "available", createdAt: "2024-08-15T00:00:00Z", updatedAt: "2024-12-01T00:00:00Z" },
+  { id: "key-4", orgId: "org-1", unitId: "unit-9", propertyId: "prop-3", label: "Smart lock code", kind: "smart_lock", copies: 1, status: "issued", holderType: "tenant", holderId: "tenant-5", holderName: "Yuki Tanaka", issuedAt: "2024-09-15T00:00:00Z", notes: "Code rotates at each turnover.", createdAt: "2024-09-01T00:00:00Z", updatedAt: "2024-09-15T00:00:00Z" },
+  { id: "key-5", orgId: "org-1", unitId: "unit-2", propertyId: "prop-1", label: "Front door — spare", kind: "physical", copies: 1, status: "lost", notes: "Reported lost by tenant Nov 2024 — lock changed.", createdAt: "2024-06-01T00:00:00Z", updatedAt: "2024-11-12T00:00:00Z" },
+];
+
+export const mockLockChanges: LockChange[] = [
+  { id: "lock-1", orgId: "org-1", unitId: "unit-2", propertyId: "prop-1", changedAt: "2024-11-12T00:00:00Z", reason: "lost_key", vendorId: "vendor-1", cost: 145, notes: "Rekeyed after tenant reported a lost key. Two new copies cut.", createdAt: "2024-11-12T00:00:00Z" },
+  { id: "lock-2", orgId: "org-1", unitId: "unit-3", propertyId: "prop-1", changedAt: "2024-12-01T00:00:00Z", reason: "turnover", cost: 95, notes: "Standard rekey between tenancies.", createdAt: "2024-12-01T00:00:00Z" },
+];
+
+export const mockUnitNotes: UnitNote[] = [
+  { id: "note-1", orgId: "org-1", unitId: "unit-1", propertyId: "prop-1", tenantId: "tenant-1", kind: "call", body: "Sarah called about the kitchen sink leak. Advised a plumber would be assigned within 24h.", authorId: "user-1", authorName: "Davis Housing Services", pinned: false, createdAt: "2024-12-08T11:00:00Z" },
+  { id: "note-2", orgId: "org-1", unitId: "unit-1", propertyId: "prop-1", kind: "note", body: "Dishwasher is out of warranty as of Jan 2025 — budget for replacement at next turnover.", authorId: "user-1", authorName: "Davis Housing Services", pinned: true, createdAt: "2024-12-15T09:30:00Z" },
+  { id: "note-3", orgId: "org-1", unitId: "unit-2", propertyId: "prop-1", tenantId: "tenant-2", kind: "complaint", body: "Noise complaint from Unit 103 about late-night music. Spoke with James, resolved amicably.", authorId: "user-1", authorName: "Davis Housing Services", pinned: false, createdAt: "2024-11-20T20:15:00Z" },
+  { id: "note-4", orgId: "org-1", unitId: "unit-3", propertyId: "prop-1", kind: "visit", body: "Walked the unit with a prospective tenant. Positive feedback, concerned about parking.", authorId: "user-1", authorName: "Davis Housing Services", pinned: false, createdAt: "2025-01-06T15:00:00Z" },
+];
+
+export const mockCalendarEvents: CalendarEvent[] = [
+  { id: "cal-1", orgId: "org-1", type: "showing", title: "Showing — Unit 103", start: "2025-01-16T15:00:00Z", end: "2025-01-16T15:30:00Z", allDay: false, status: "scheduled", unitId: "unit-3", propertyId: "prop-1", notes: "Prospect: Emily Davis", createdAt: "2025-01-10T00:00:00Z", updatedAt: "2025-01-10T00:00:00Z" },
+  { id: "cal-2", orgId: "org-1", type: "inspection", title: "Turnover inspection — Unit 103", start: "2025-01-20T10:00:00Z", end: "2025-01-20T11:00:00Z", allDay: false, status: "scheduled", unitId: "unit-3", propertyId: "prop-1", relatedId: "insp-1", createdAt: "2025-01-10T00:00:00Z", updatedAt: "2025-01-10T00:00:00Z" },
+  { id: "cal-3", orgId: "org-1", type: "move_out", title: "Move-out — Unit 203", start: "2025-01-14T09:00:00Z", allDay: true, status: "scheduled", unitId: "unit-6", propertyId: "prop-1", createdAt: "2025-01-02T00:00:00Z", updatedAt: "2025-01-02T00:00:00Z" },
+  { id: "cal-4", orgId: "org-1", type: "maintenance", title: "Plumber — kitchen sink, Unit 101", start: "2025-01-15T13:00:00Z", end: "2025-01-15T15:00:00Z", allDay: false, status: "scheduled", unitId: "unit-1", propertyId: "prop-1", vendorId: "vendor-1", relatedId: "maint-1", createdAt: "2025-01-09T00:00:00Z", updatedAt: "2025-01-09T00:00:00Z" },
+  { id: "cal-5", orgId: "org-1", type: "move_in", title: "Move-in — Unit 102 (new tenant)", start: "2025-02-01T09:00:00Z", allDay: true, status: "scheduled", unitId: "unit-2", propertyId: "prop-1", createdAt: "2025-01-08T00:00:00Z", updatedAt: "2025-01-08T00:00:00Z" },
 ];

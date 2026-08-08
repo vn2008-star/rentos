@@ -50,6 +50,7 @@ export async function createPaymentIntent(params: {
 export async function setupAutopay(params: {
   tenantId: string;
   email: string;
+  orgId: string;
 }): Promise<{ clientSecret: string } | null> {
   try {
     const res = await fetch("/api/payments/setup-autopay", {

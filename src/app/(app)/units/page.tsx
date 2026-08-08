@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Search, Filter, Bed, Bath, Ruler, DollarSign, MoreHorizontal, Edit2, Trash2, Eye, Wifi, WifiOff } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ const statusConfig: Record<UnitStatus, { label: string; color: string; bg: strin
 };
 
 export default function UnitsPage() {
+  const router = useRouter();
   const { units, loading, isLive, addUnit, removeUnit } = useUnits();
   const { properties } = useProperties();
   const [showAdd, setShowAdd] = useState(false);
@@ -132,7 +134,7 @@ export default function UnitsPage() {
                   <DropdownMenu>
                     <DropdownMenuTrigger render={<Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="h-4 w-4" /></Button>} />
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem><Eye className="h-4 w-4 mr-2" /> View</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => router.push(`/units/${unit.id}`)}><Eye className="h-4 w-4 mr-2" /> View</DropdownMenuItem>
                       <DropdownMenuItem><Edit2 className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
                       <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(unit.id, unit.unitNumber)}><Trash2 className="h-4 w-4 mr-2" /> Delete</DropdownMenuItem>
                     </DropdownMenuContent>
@@ -146,6 +148,10 @@ export default function UnitsPage() {
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-border/30">
                   <span className="text-lg font-bold font-heading">${unit.rent.toLocaleString()}<span className="text-xs font-normal text-muted-foreground">/mo</span></span>
+                  <Button variant="outline" size="sm" className="h-7 text-[11px]"
+                    onClick={() => router.push(`/units/${unit.id}`)}>
+                    Photos · Notes · Keys
+                  </Button>
                 </div>
               </CardContent>
             </Card>

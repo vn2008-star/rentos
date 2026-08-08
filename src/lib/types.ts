@@ -30,6 +30,15 @@ export interface UserProfile {
   phone?: string;
   /** Set on contractor accounts — links the login to a Vendor record. */
   vendorId?: string;
+  /**
+   * Set on tenant accounts — links the login to a Tenant record.
+   *
+   * Security rules cannot run queries, so this is how a rule decides whether a
+   * lease or transaction belongs to the caller. Without it, scoping a tenant to
+   * their own records is impossible and the only workable rule is "any member
+   * of the org can read everything".
+   */
+  tenantId?: string;
   createdAt: string;
   lastLoginAt?: string;
 }
@@ -121,6 +130,17 @@ export interface Tenant {
   moveInDate?: string;
   moveOutDate?: string;
   notes?: string;
+  // ----- Autopay (written by the Stripe webhook, never by the client) -----
+  autopayEnabled?: boolean;
+  stripeCustomerId?: string;
+  stripePaymentMethodId?: string;
+  /** Display-only card details. The card itself stays with Stripe. */
+  defaultPaymentMethod?: {
+    brand: string;
+    last4: string;
+    expMonth: number;
+    expYear: number;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -350,7 +370,197 @@ export interface Transaction {
   status: "pending" | "completed" | "failed" | "refunded";
   stripePaymentIntentId?: string;
   receiptUrl?: string;
+  /** Set by the Stripe webhook when a payment_intent fails. */
+  failureReason?: string;
   createdAt: string;
+}
+
+// ----- Notifications -----
+export type NotificationKind =
+  | "payment_failed"
+  | "payment_received"
+  | "maintenance_urgent"
+  | "lease_expiring"
+  | "application_received";
+
+/**
+ * In-app notification. Written server-side by the Stripe webhook and
+ * client-side by the app; read through useNotifications().
+ */
+export interface Notification {
+  id: string;
+  orgId: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  /** Who should see it. "manager" covers manager + owner roles. */
+  audience: "manager" | "tenant";
+  /** Set when audience is "tenant" — scopes it to one person. */
+  tenantId?: string;
+  /** In-app route to open when clicked. */
+  href?: string;
+  read: boolean;
+  createdAt: string;
+}
+
+// ----- Inspections -----
+export type InspectionType = "move_in" | "move_out" | "periodic" | "turnover";
+export type InspectionStatus = "scheduled" | "in_progress" | "completed";
+export type ItemCondition = "excellent" | "good" | "fair" | "poor" | "damaged";
+
+/** One area of a unit as found during an inspection. */
+export interface InspectionArea {
+  /** Kitchen, Bathroom, Bedroom 1, Exterior … */
+  name: string;
+  condition: ItemCondition;
+  notes?: string;
+  photos: string[];
+  /** Set on move-out when damage is chargeable to the deposit. */
+  estimatedCost?: number;
+}
+
+export interface Inspection {
+  id: string;
+  orgId: string;
+  unitId: string;
+  propertyId: string;
+  leaseId?: string;
+  tenantId?: string;
+  type: InspectionType;
+  status: InspectionStatus;
+  scheduledFor: string;
+  completedAt?: string;
+  inspectorName: string;
+  areas: InspectionArea[];
+  summary?: string;
+  /** Move-out only: what is being withheld and why. */
+  depositDeduction?: number;
+  /** Tenant acknowledgement, mirroring how leases are signed. */
+  tenantSignature?: { signedAt: string; signatureUrl: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ----- Keys & Locks -----
+export type KeyKind = "physical" | "fob" | "code" | "smart_lock" | "mailbox" | "garage";
+export type KeyStatus = "available" | "issued" | "lost" | "retired";
+
+export interface KeyRecord {
+  id: string;
+  orgId: string;
+  unitId: string;
+  propertyId: string;
+  label: string;
+  kind: KeyKind;
+  copies: number;
+  status: KeyStatus;
+  /** Who currently holds it — a tenant, a vendor, or a named person. */
+  holderType?: "tenant" | "vendor" | "staff" | "other";
+  holderId?: string;
+  holderName?: string;
+  issuedAt?: string;
+  returnedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A rekey or lock replacement. Kept separate from keys so the unit keeps a
+ *  permanent audit trail even after the keys themselves are retired. */
+export interface LockChange {
+  id: string;
+  orgId: string;
+  unitId: string;
+  propertyId: string;
+  changedAt: string;
+  reason: "turnover" | "lost_key" | "security" | "upgrade" | "damage" | "other";
+  performedBy?: string;
+  vendorId?: string;
+  cost?: number;
+  notes?: string;
+  createdAt: string;
+}
+
+// ----- Unit Notes & Communication -----
+export type NoteKind = "note" | "call" | "email" | "sms" | "visit" | "complaint";
+
+export interface UnitNote {
+  id: string;
+  orgId: string;
+  unitId: string;
+  propertyId?: string;
+  tenantId?: string;
+  kind: NoteKind;
+  body: string;
+  authorId: string;
+  authorName: string;
+  /** Pinned notes surface at the top of the unit's history. */
+  pinned: boolean;
+  createdAt: string;
+}
+
+// ----- Calendar -----
+export type CalendarEventType =
+  | "showing"
+  | "inspection"
+  | "move_in"
+  | "move_out"
+  | "maintenance"
+  | "lease_renewal"
+  | "other";
+
+export type CalendarEventStatus = "scheduled" | "completed" | "cancelled";
+
+export interface CalendarEvent {
+  id: string;
+  orgId: string;
+  type: CalendarEventType;
+  title: string;
+  /** ISO datetime. allDay events ignore the time component. */
+  start: string;
+  end?: string;
+  allDay: boolean;
+  status: CalendarEventStatus;
+  unitId?: string;
+  propertyId?: string;
+  tenantId?: string;
+  vendorId?: string;
+  /** Inspection, work order or application this event was created for. */
+  relatedId?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ----- Reminders -----
+export type ReminderKind =
+  | "lease_renewal"
+  | "lease_expiring"
+  | "inspection_due"
+  | "inspection_overdue"
+  | "maintenance_stale"
+  | "key_outstanding"
+  | "rent_overdue";
+
+export type ReminderSeverity = "info" | "warning" | "critical";
+
+/**
+ * Derived, not stored. Computed from leases, inspections, maintenance and keys
+ * on every read, so a reminder can never go stale or contradict the records it
+ * describes — and no scheduled job is needed to create them.
+ */
+export interface Reminder {
+  id: string;
+  kind: ReminderKind;
+  severity: ReminderSeverity;
+  title: string;
+  detail: string;
+  /** ISO date the thing is due; past dates are overdue. */
+  dueDate: string;
+  daysUntilDue: number;
+  href: string;
+  unitId?: string;
+  tenantId?: string;
 }
 
 // ----- Listings -----

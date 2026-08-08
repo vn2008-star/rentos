@@ -1,33 +1,80 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { where, type WhereFilterOp } from "firebase/firestore";
 import { useAuthStore } from "./store";
 import {
   createDocument, queryDocuments, updateDocument, deleteDocument,
-  subscribeToCollection, uploadMultipleFiles, Collections,
+  subscribeToCollection, uploadMultipleFiles, getDocument, Collections,
 } from "./firestore";
 import { isFirebaseConfigured } from "./demo";
 import {
   mockProperties, mockUnits, mockTenants,
   mockMaintenanceRequests, mockApplications,
   mockLeases, mockTransactions, mockListings, mockSublets,
-  mockVendors, mockWorkOrders,
+  mockVendors, mockWorkOrders, mockNotifications,
+  mockInspections, mockKeys, mockLockChanges, mockUnitNotes, mockCalendarEvents,
 } from "./mock-data";
+import { buildReminders } from "./reminders";
 import type {
   Property, Unit, Tenant, MaintenanceRequest, RentalApplication,
   Lease, Transaction, Listing, Sublet, LeaseStatus, ApplicationStatus, ScreeningResult,
   PropertyType, UnitStatus, MaintenanceCategory, MaintenancePriority,
-  Vendor, VendorStatus, WorkOrder, WorkOrderStatus,
+  Vendor, VendorStatus, WorkOrder, WorkOrderStatus, Notification,
+  Inspection, InspectionType, InspectionArea, KeyRecord, KeyKind, KeyStatus,
+  LockChange, UnitNote, NoteKind, CalendarEvent, CalendarEventType, Reminder,
 } from "./types";
 
 // ============================================
 // Shared hook pattern: try Firestore, fallback to mock
 // ============================================
 
+/**
+ * Rethrows a failed write once Firebase is live.
+ *
+ * In demo mode there is no backend, so falling back to local state is the whole
+ * point. Once credentials exist a rejected write is a real failure — rules,
+ * network, quota — and swallowing it makes the UI report success and hand back
+ * a fabricated id while nothing was saved.
+ */
+function rethrowIfLive(err: unknown): void {
+  if (isFirebaseConfigured()) throw err;
+}
+
+/**
+ * Narrows a collection query to the signed-in tenant's own documents.
+ *
+ * Staff get no filter — they may read the whole org. Tenants must be filtered
+ * at the query level, not after the fact: security rules reject any query that
+ * could match a document the caller cannot read, so an unfiltered
+ * `where orgId == …` fails outright for a tenant rather than returning a
+ * subset.
+ *
+ * A tenant whose profile has no tenantId yet gets a filter that matches
+ * nothing, which is the safe direction to fail.
+ */
+function useTenantFilter(field: string, op: WhereFilterOp = "=="): Filter[] {
+  const user = useAuthStore((s) => s.user);
+  return useMemo(() => {
+    if (user?.role !== "tenant") return [];
+    return [{ field, op, value: user.tenantId || "__unlinked__" }];
+  }, [user?.role, user?.tenantId, field, op]);
+}
+
+/**
+ * A serialisable query filter.
+ *
+ * Passed as plain data rather than Firestore QueryConstraint objects so the
+ * effect below can depend on its value instead of an identity that changes
+ * every render.
+ */
+export type Filter = { field: string; op: WhereFilterOp; value: unknown };
+
 function useFirestoreCollection<T>(
   collectionName: string,
   mockData: T[],
-  enabled = true
+  enabled = true,
+  filters: Filter[] = []
 ) {
   const user = useAuthStore((s) => s.user);
   const [data, setData] = useState<T[]>(mockData);
@@ -35,28 +82,48 @@ function useFirestoreCollection<T>(
   const [error, setError] = useState<string | null>(null);
   const [isLive, setIsLive] = useState(false);
 
+  // Security rules reject a query that could return documents the caller may
+  // not read, so tenant-facing screens must narrow the query rather than filter
+  // afterwards. Serialised so it can be a stable effect dependency.
+  const filterKey = JSON.stringify(filters);
+
   useEffect(() => {
     // Without credentials the subscription can only fail, so don't wait on it.
     if (!user?.orgId || !enabled || !isFirebaseConfigured()) {
-      setData(mockData);
+      // Mock data is the demo affordance and nothing more. When Firebase is
+      // live but this collection is switched off for the current role, the
+      // honest answer is "nothing", not a fabricated portfolio.
+      setData(isFirebaseConfigured() ? [] : mockData);
       setLoading(false);
       return;
     }
+
+    const constraints = (JSON.parse(filterKey) as Filter[]).map((f) =>
+      where(f.field, f.op, f.value)
+    );
 
     setLoading(true);
     const unsubscribe = subscribeToCollection<T>(
       collectionName,
       user.orgId,
       (docs) => {
-        if (docs.length > 0) {
-          setData(docs);
-          setIsLive(true);
-        } else {
-          setData(mockData);
-          setIsLive(false);
-        }
+        // Once Firebase is configured, Firestore is the truth — including when
+        // it returns nothing. Substituting mock data for an empty result would
+        // make a genuinely empty org, or a query that silently stopped
+        // matching, look like a populated portfolio.
+        setData(docs);
+        setIsLive(true);
         setLoading(false);
         setError(null);
+      },
+      constraints,
+      (err) => {
+        // A failed read is not an empty org. Surface it rather than showing
+        // fabricated numbers a manager might act on.
+        setData([]);
+        setIsLive(false);
+        setLoading(false);
+        setError(err.message);
       }
     );
 
@@ -68,7 +135,7 @@ function useFirestoreCollection<T>(
       unsubscribe();
       clearTimeout(timeout);
     };
-  }, [user?.orgId, collectionName, enabled]);
+  }, [user?.orgId, collectionName, enabled, filterKey]);
 
   return { data, setData, loading, error, isLive };
 }
@@ -79,7 +146,7 @@ function useFirestoreCollection<T>(
 
 export function useProperties() {
   const user = useAuthStore((s) => s.user);
-  const { data: properties, setData: setProperties, loading, isLive } =
+  const { data: properties, setData: setProperties, loading, isLive, error } =
     useFirestoreCollection<Property>(Collections.PROPERTIES, mockProperties);
 
   const addProperty = useCallback(async (input: {
@@ -115,6 +182,7 @@ export function useProperties() {
       }
       return id;
     } catch (err) {
+      rethrowIfLive(err);
       const id = `prop-${Date.now()}`;
       setProperties(prev => [...prev, { ...property, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Property]);
       return id;
@@ -137,7 +205,7 @@ export function useProperties() {
     setProperties(prev => prev.filter(p => p.id !== id));
   }, [setProperties]);
 
-  return { properties, loading, isLive, addProperty, editProperty, removeProperty };
+  return { properties, loading, isLive, error, addProperty, editProperty, removeProperty };
 }
 
 // ============================================
@@ -183,7 +251,8 @@ export function useUnits() {
         setUnits(prev => [...prev, { ...unit, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Unit]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `unit-${Date.now()}`;
       setUnits(prev => [...prev, { ...unit, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Unit]);
       return id;
@@ -212,7 +281,13 @@ export function useUnits() {
 export function useTenants() {
   const user = useAuthStore((s) => s.user);
   const { data: tenants, setData: setTenants, loading, isLive } =
-    useFirestoreCollection<Tenant>(Collections.TENANTS, mockTenants);
+    useFirestoreCollection<Tenant>(
+      Collections.TENANTS, mockTenants,
+      // Tenants cannot enumerate the roster — the rules scope them to their own
+      // record by document id, which a collection query cannot express. They
+      // reach their own record through useCurrentTenant() instead.
+      user?.role !== "tenant"
+    );
 
   const addTenant = useCallback(async (input: {
     firstName: string; lastName: string; email: string; phone: string;
@@ -227,7 +302,8 @@ export function useTenants() {
         setTenants(prev => [...prev, { ...tenant, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Tenant]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `tenant-${Date.now()}`;
       setTenants(prev => [...prev, { ...tenant, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Tenant]);
       return id;
@@ -256,7 +332,10 @@ export function useTenants() {
 export function useMaintenance() {
   const user = useAuthStore((s) => s.user);
   const { data: requests, setData: setRequests, loading, isLive } =
-    useFirestoreCollection<MaintenanceRequest>(Collections.MAINTENANCE, mockMaintenanceRequests);
+    useFirestoreCollection<MaintenanceRequest>(
+      Collections.MAINTENANCE, mockMaintenanceRequests, true,
+      useTenantFilter("tenantId")
+    );
 
   const addRequest = useCallback(async (input: {
     title: string; description: string; category: MaintenanceCategory;
@@ -294,7 +373,8 @@ export function useMaintenance() {
         setRequests(prev => [{ ...req, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as MaintenanceRequest, ...prev]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `maint-${Date.now()}`;
       setRequests(prev => [{ ...req, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as MaintenanceRequest, ...prev]);
       return id;
@@ -348,7 +428,8 @@ export function useApplications() {
         setApplications(prev => [{ ...app, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as RentalApplication, ...prev]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `app-${Date.now()}`;
       setApplications(prev => [{ ...app, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as RentalApplication, ...prev]);
       return id;
@@ -375,7 +456,11 @@ export function useApplications() {
 export function useLeases() {
   const user = useAuthStore((s) => s.user);
   const { data: leases, setData: setLeases, loading, isLive } =
-    useFirestoreCollection<Lease>(Collections.LEASES, mockLeases);
+    useFirestoreCollection<Lease>(
+      Collections.LEASES, mockLeases, true,
+      // A tenant sees only leases naming them; the rules check the same thing.
+      useTenantFilter("tenantIds", "array-contains")
+    );
 
   const addLease = useCallback(async (input: {
     unitId: string; propertyId: string; tenantIds: string[];
@@ -409,7 +494,8 @@ export function useLeases() {
         setLeases(prev => [{ ...lease, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Lease, ...prev]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `lease-${Date.now()}`;
       setLeases(prev => [{ ...lease, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Lease, ...prev]);
       return id;
@@ -440,7 +526,10 @@ export function useLeases() {
 export function useTransactions() {
   const user = useAuthStore((s) => s.user);
   const { data: transactions, setData: setTransactions, loading, isLive } =
-    useFirestoreCollection<Transaction>(Collections.TRANSACTIONS, mockTransactions);
+    useFirestoreCollection<Transaction>(
+      Collections.TRANSACTIONS, mockTransactions, true,
+      useTenantFilter("tenantId")
+    );
 
   const addTransaction = useCallback(async (input: Omit<Transaction, "id" | "createdAt">) => {
     try {
@@ -449,7 +538,8 @@ export function useTransactions() {
         setTransactions(prev => [{ ...input, id, createdAt: new Date().toISOString() } as Transaction, ...prev]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `txn-${Date.now()}`;
       setTransactions(prev => [{ ...input, id, createdAt: new Date().toISOString() } as Transaction, ...prev]);
       return id;
@@ -499,7 +589,8 @@ export function useListings() {
         setListings(prev => [{ ...listing, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Listing, ...prev]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `listing-${Date.now()}`;
       setListings(prev => [{ ...listing, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Listing, ...prev]);
       return id;
@@ -533,7 +624,10 @@ export function useListings() {
 export function useSublets() {
   const user = useAuthStore((s) => s.user);
   const { data: sublets, setData: setSublets, loading, isLive } =
-    useFirestoreCollection<Sublet>(Collections.SUBLETS, mockSublets);
+    useFirestoreCollection<Sublet>(
+      Collections.SUBLETS, mockSublets, true,
+      useTenantFilter("tenantId")
+    );
 
   const addSublet = useCallback(async (input: {
     tenantId: string; unitId: string; propertyId: string; leaseId?: string;
@@ -564,7 +658,8 @@ export function useSublets() {
         setSublets(prev => [{ ...sublet, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Sublet, ...prev]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `sublet-${Date.now()}`;
       setSublets(prev => [{ ...sublet, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Sublet, ...prev]);
       return id;
@@ -616,7 +711,8 @@ export function useVendors() {
         setVendors(prev => [...prev, { ...vendor, id, createdAt: new Date().toISOString() } as Vendor]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `vendor-${Date.now()}`;
       setVendors(prev => [...prev, { ...vendor, id, createdAt: new Date().toISOString() } as Vendor]);
       return id;
@@ -665,7 +761,8 @@ export function useWorkOrders() {
         setWorkOrders(prev => [{ ...wo, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as WorkOrder, ...prev]);
       }
       return id;
-    } catch {
+    } catch (err) {
+      rethrowIfLive(err);
       const id = `wo-${Date.now()}`;
       setWorkOrders(prev => [{ ...wo, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as WorkOrder, ...prev]);
       return id;
@@ -731,6 +828,380 @@ export function useWorkOrders() {
 }
 
 // ============================================
+// Inspections Hook
+// ============================================
+
+export function useInspections() {
+  const user = useAuthStore((s) => s.user);
+  const { data: inspections, setData: setInspections, loading, isLive } =
+    useFirestoreCollection<Inspection>(
+      Collections.INSPECTIONS, mockInspections, true,
+      // A tenant sees the inspections of their own tenancy — move-in and
+      // move-out condition reports are the evidence behind deposit decisions.
+      useTenantFilter("tenantId")
+    );
+
+  const scheduleInspection = useCallback(async (input: {
+    unitId: string; propertyId: string; type: InspectionType; scheduledFor: string;
+    inspectorName: string; leaseId?: string; tenantId?: string;
+  }) => {
+    const orgId = user?.orgId || "org-1";
+    const inspection: Omit<Inspection, "id" | "createdAt" | "updatedAt"> = {
+      orgId,
+      unitId: input.unitId,
+      propertyId: input.propertyId,
+      ...(input.leaseId ? { leaseId: input.leaseId } : {}),
+      ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+      type: input.type,
+      status: "scheduled",
+      scheduledFor: input.scheduledFor,
+      inspectorName: input.inspectorName,
+      areas: [],
+    };
+    try {
+      const id = await createDocument(Collections.INSPECTIONS, inspection);
+      if (!isLive) {
+        setInspections(prev => [{ ...inspection, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Inspection, ...prev]);
+      }
+      return id;
+    } catch (err) {
+      rethrowIfLive(err);
+      const id = `insp-${Date.now()}`;
+      setInspections(prev => [{ ...inspection, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Inspection, ...prev]);
+      return id;
+    }
+  }, [user?.orgId, isLive, setInspections]);
+
+  const updateInspection = useCallback(async (id: string, updates: Partial<Inspection>) => {
+    try { await updateDocument(Collections.INSPECTIONS, id, updates); } catch { /* offline */ }
+    if (!isLive) {
+      setInspections(prev => prev.map(i => i.id === id ? { ...i, ...updates, updatedAt: new Date().toISOString() } : i));
+    }
+  }, [isLive, setInspections]);
+
+  /** Records one area's condition, replacing any existing entry for that area. */
+  const saveArea = useCallback(async (id: string, area: InspectionArea) => {
+    const inspection = inspections.find(i => i.id === id);
+    if (!inspection) return;
+    const areas = [
+      ...inspection.areas.filter(a => a.name !== area.name),
+      area,
+    ].sort((a, b) => a.name.localeCompare(b.name));
+
+    // Move-out damage rolls up into the deposit deduction automatically, so the
+    // number a tenant is charged always matches the itemised evidence.
+    const depositDeduction = inspection.type === "move_out"
+      ? areas.reduce((sum, a) => sum + (a.estimatedCost ?? 0), 0)
+      : inspection.depositDeduction;
+
+    await updateInspection(id, {
+      areas,
+      ...(depositDeduction !== undefined ? { depositDeduction } : {}),
+      status: inspection.status === "scheduled" ? "in_progress" : inspection.status,
+    });
+  }, [inspections, updateInspection]);
+
+  const completeInspection = useCallback(async (id: string, summary?: string) => {
+    await updateInspection(id, {
+      status: "completed",
+      completedAt: new Date().toISOString(),
+      ...(summary ? { summary } : {}),
+    });
+  }, [updateInspection]);
+
+  const removeInspection = useCallback(async (id: string) => {
+    try { await deleteDocument(Collections.INSPECTIONS, id); } catch { /* offline */ }
+    setInspections(prev => prev.filter(i => i.id !== id));
+  }, [setInspections]);
+
+  return {
+    inspections, loading, isLive,
+    scheduleInspection, updateInspection, saveArea, completeInspection, removeInspection,
+  };
+}
+
+// ============================================
+// Keys & Locks Hook
+// ============================================
+
+export function useKeys() {
+  const user = useAuthStore((s) => s.user);
+  const { data: keys, setData: setKeys, loading, isLive } =
+    useFirestoreCollection<KeyRecord>(Collections.KEYS, mockKeys, user?.role !== "tenant");
+  const { data: lockChanges, setData: setLockChanges } =
+    useFirestoreCollection<LockChange>(Collections.LOCK_CHANGES, mockLockChanges, user?.role !== "tenant");
+
+  const addKey = useCallback(async (input: {
+    unitId: string; propertyId: string; label: string; kind: KeyKind;
+    copies: number; notes?: string;
+  }) => {
+    const orgId = user?.orgId || "org-1";
+    const key: Omit<KeyRecord, "id" | "createdAt" | "updatedAt"> = {
+      orgId, unitId: input.unitId, propertyId: input.propertyId,
+      label: input.label, kind: input.kind, copies: input.copies,
+      status: "available",
+      ...(input.notes ? { notes: input.notes } : {}),
+    };
+    try {
+      const id = await createDocument(Collections.KEYS, key);
+      if (!isLive) {
+        setKeys(prev => [...prev, { ...key, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as KeyRecord]);
+      }
+      return id;
+    } catch (err) {
+      rethrowIfLive(err);
+      const id = `key-${Date.now()}`;
+      setKeys(prev => [...prev, { ...key, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as KeyRecord]);
+      return id;
+    }
+  }, [user?.orgId, isLive, setKeys]);
+
+  const updateKey = useCallback(async (id: string, updates: Partial<KeyRecord>) => {
+    try { await updateDocument(Collections.KEYS, id, updates); } catch { /* offline */ }
+    if (!isLive) {
+      setKeys(prev => prev.map(k => k.id === id ? { ...k, ...updates, updatedAt: new Date().toISOString() } : k));
+    }
+  }, [isLive, setKeys]);
+
+  const issueKey = useCallback(async (
+    id: string,
+    holder: { type: "tenant" | "vendor" | "staff" | "other"; id?: string; name: string }
+  ) => {
+    await updateKey(id, {
+      status: "issued",
+      holderType: holder.type,
+      ...(holder.id ? { holderId: holder.id } : {}),
+      holderName: holder.name,
+      issuedAt: new Date().toISOString(),
+      returnedAt: undefined,
+    });
+  }, [updateKey]);
+
+  const returnKey = useCallback(async (id: string) => {
+    await updateKey(id, {
+      status: "available",
+      holderType: undefined,
+      holderId: undefined,
+      holderName: undefined,
+      returnedAt: new Date().toISOString(),
+    });
+  }, [updateKey]);
+
+  const markKeyStatus = useCallback(async (id: string, status: KeyStatus) => {
+    await updateKey(id, { status });
+  }, [updateKey]);
+
+  /** Records a rekey. Any key still issued for that unit is retired, because
+   *  after a lock change the old copies no longer open anything. */
+  const recordLockChange = useCallback(async (input: {
+    unitId: string; propertyId: string; reason: LockChange["reason"];
+    cost?: number; vendorId?: string; notes?: string; performedBy?: string;
+  }) => {
+    const orgId = user?.orgId || "org-1";
+    const change: Omit<LockChange, "id" | "createdAt"> = {
+      orgId, unitId: input.unitId, propertyId: input.propertyId,
+      changedAt: new Date().toISOString(),
+      reason: input.reason,
+      ...(input.cost !== undefined ? { cost: input.cost } : {}),
+      ...(input.vendorId ? { vendorId: input.vendorId } : {}),
+      ...(input.notes ? { notes: input.notes } : {}),
+      ...(input.performedBy ? { performedBy: input.performedBy } : {}),
+    };
+
+    let id: string;
+    try {
+      id = await createDocument(Collections.LOCK_CHANGES, change);
+      if (!isLive) {
+        setLockChanges(prev => [{ ...change, id, createdAt: new Date().toISOString() } as LockChange, ...prev]);
+      }
+    } catch (err) {
+      rethrowIfLive(err);
+      id = `lock-${Date.now()}`;
+      setLockChanges(prev => [{ ...change, id, createdAt: new Date().toISOString() } as LockChange, ...prev]);
+    }
+
+    await Promise.all(
+      keys
+        .filter(k => k.unitId === input.unitId && k.status !== "retired")
+        .map(k => updateKey(k.id, { status: "retired" }))
+    );
+
+    return id;
+  }, [user?.orgId, isLive, keys, setLockChanges, updateKey]);
+
+  const removeKey = useCallback(async (id: string) => {
+    try { await deleteDocument(Collections.KEYS, id); } catch { /* offline */ }
+    setKeys(prev => prev.filter(k => k.id !== id));
+  }, [setKeys]);
+
+  return {
+    keys, lockChanges, loading, isLive,
+    addKey, updateKey, issueKey, returnKey, markKeyStatus, recordLockChange, removeKey,
+  };
+}
+
+// ============================================
+// Unit Notes Hook
+// ============================================
+
+export function useUnitNotes() {
+  const user = useAuthStore((s) => s.user);
+  const { data: notes, setData: setNotes, loading, isLive } =
+    useFirestoreCollection<UnitNote>(
+      Collections.UNIT_NOTES, mockUnitNotes,
+      // Internal record-keeping — never exposed to tenants.
+      user?.role !== "tenant"
+    );
+
+  const addNote = useCallback(async (input: {
+    unitId: string; body: string; kind: NoteKind;
+    propertyId?: string; tenantId?: string; pinned?: boolean;
+  }) => {
+    const orgId = user?.orgId || "org-1";
+    const note: Omit<UnitNote, "id" | "createdAt"> = {
+      orgId,
+      unitId: input.unitId,
+      ...(input.propertyId ? { propertyId: input.propertyId } : {}),
+      ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+      kind: input.kind,
+      body: input.body,
+      authorId: user?.id || "unknown",
+      authorName: user?.displayName || "Unknown",
+      pinned: input.pinned ?? false,
+    };
+    try {
+      const id = await createDocument(Collections.UNIT_NOTES, note);
+      if (!isLive) {
+        setNotes(prev => [{ ...note, id, createdAt: new Date().toISOString() } as UnitNote, ...prev]);
+      }
+      return id;
+    } catch (err) {
+      rethrowIfLive(err);
+      const id = `note-${Date.now()}`;
+      setNotes(prev => [{ ...note, id, createdAt: new Date().toISOString() } as UnitNote, ...prev]);
+      return id;
+    }
+  }, [user?.orgId, user?.id, user?.displayName, isLive, setNotes]);
+
+  const togglePin = useCallback(async (id: string) => {
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
+    try { await updateDocument(Collections.UNIT_NOTES, id, { pinned: !note.pinned }); } catch { /* offline */ }
+    setNotes(prev => prev.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n));
+  }, [notes, setNotes]);
+
+  const removeNote = useCallback(async (id: string) => {
+    try { await deleteDocument(Collections.UNIT_NOTES, id); } catch { /* offline */ }
+    setNotes(prev => prev.filter(n => n.id !== id));
+  }, [setNotes]);
+
+  /** A unit's history, pinned first then newest first. */
+  const notesForUnit = useCallback((unitId: string) =>
+    notes
+      .filter(n => n.unitId === unitId)
+      .sort((a, b) =>
+        Number(b.pinned) - Number(a.pinned) || b.createdAt.localeCompare(a.createdAt)
+      ),
+  [notes]);
+
+  return { notes, loading, isLive, addNote, togglePin, removeNote, notesForUnit };
+}
+
+// ============================================
+// Calendar Hook
+// ============================================
+
+export function useCalendar() {
+  const user = useAuthStore((s) => s.user);
+  const { data: events, setData: setEvents, loading, isLive } =
+    useFirestoreCollection<CalendarEvent>(
+      Collections.CALENDAR_EVENTS, mockCalendarEvents, user?.role !== "tenant"
+    );
+
+  const addEvent = useCallback(async (input: {
+    type: CalendarEventType; title: string; start: string; end?: string;
+    allDay?: boolean; unitId?: string; propertyId?: string; tenantId?: string;
+    vendorId?: string; relatedId?: string; notes?: string;
+  }) => {
+    const orgId = user?.orgId || "org-1";
+    const event: Omit<CalendarEvent, "id" | "createdAt" | "updatedAt"> = {
+      orgId,
+      type: input.type,
+      title: input.title,
+      start: input.start,
+      ...(input.end ? { end: input.end } : {}),
+      allDay: input.allDay ?? false,
+      status: "scheduled",
+      ...(input.unitId ? { unitId: input.unitId } : {}),
+      ...(input.propertyId ? { propertyId: input.propertyId } : {}),
+      ...(input.tenantId ? { tenantId: input.tenantId } : {}),
+      ...(input.vendorId ? { vendorId: input.vendorId } : {}),
+      ...(input.relatedId ? { relatedId: input.relatedId } : {}),
+      ...(input.notes ? { notes: input.notes } : {}),
+    };
+    try {
+      const id = await createDocument(Collections.CALENDAR_EVENTS, event);
+      if (!isLive) {
+        setEvents(prev => [...prev, { ...event, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as CalendarEvent]);
+      }
+      return id;
+    } catch (err) {
+      rethrowIfLive(err);
+      const id = `cal-${Date.now()}`;
+      setEvents(prev => [...prev, { ...event, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as CalendarEvent]);
+      return id;
+    }
+  }, [user?.orgId, isLive, setEvents]);
+
+  const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
+    try { await updateDocument(Collections.CALENDAR_EVENTS, id, updates); } catch { /* offline */ }
+    if (!isLive) {
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates, updatedAt: new Date().toISOString() } : e));
+    }
+  }, [isLive, setEvents]);
+
+  const removeEvent = useCallback(async (id: string) => {
+    try { await deleteDocument(Collections.CALENDAR_EVENTS, id); } catch { /* offline */ }
+    setEvents(prev => prev.filter(e => e.id !== id));
+  }, [setEvents]);
+
+  /** Events falling on a given calendar day, earliest first. */
+  const eventsOnDay = useCallback((day: Date) => {
+    const key = day.toISOString().slice(0, 10);
+    return events
+      .filter(e => e.start.slice(0, 10) === key)
+      .sort((a, b) => a.start.localeCompare(b.start));
+  }, [events]);
+
+  return { events, loading, isLive, addEvent, updateEvent, removeEvent, eventsOnDay };
+}
+
+// ============================================
+// Reminders Hook
+// ============================================
+
+/**
+ * Derived reminders across leases, inspections, maintenance and keys.
+ *
+ * Nothing is stored: see src/lib/reminders.ts for why.
+ */
+export function useReminders(): { reminders: Reminder[]; loading: boolean } {
+  const { leases, loading: l1 } = useLeases();
+  const { inspections, loading: l2 } = useInspections();
+  const { requests, loading: l3 } = useMaintenance();
+  const { keys, loading: l4 } = useKeys();
+  const { units } = useUnits();
+  const { tenants } = useTenants();
+
+  const reminders = useMemo(
+    () => buildReminders({ leases, inspections, maintenance: requests, keys, units, tenants }),
+    [leases, inspections, requests, keys, units, tenants]
+  );
+
+  return { reminders, loading: l1 || l2 || l3 || l4 };
+}
+
+// ============================================
 // Identity Hooks
 // ============================================
 // The portal pages used to hardcode `tenants[0]`, which showed every signed-in
@@ -741,23 +1212,106 @@ function sameEmail(a?: string, b?: string): boolean {
   return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-/** The Tenant record for the signed-in user, or null if they aren't a tenant. */
+/**
+ * The Tenant record for the signed-in user, or null if they aren't a tenant.
+ *
+ * Two paths, because a tenant and a manager reach this record differently.
+ * Staff already hold the whole roster and can match within it. A tenant cannot
+ * list the roster at all under the security rules, so their own record is
+ * fetched directly by the tenantId carried on their user profile.
+ */
 export function useCurrentTenant() {
   const user = useAuthStore((s) => s.user);
-  const { tenants, loading } = useTenants();
+  const { tenants, loading: rosterLoading } = useTenants();
+  const [ownRecord, setOwnRecord] = useState<Tenant | null>(null);
+  const [ownLoading, setOwnLoading] = useState(false);
+
+  const isTenant = user?.role === "tenant";
+
+  useEffect(() => {
+    if (!isTenant || !user?.tenantId || !isFirebaseConfigured()) {
+      setOwnRecord(null);
+      return;
+    }
+    let cancelled = false;
+    setOwnLoading(true);
+    getDocument<Tenant>(Collections.TENANTS, user.tenantId)
+      .then((doc) => { if (!cancelled) setOwnRecord(doc); })
+      .catch(() => { if (!cancelled) setOwnRecord(null); })
+      .finally(() => { if (!cancelled) setOwnLoading(false); });
+    return () => { cancelled = true; };
+  }, [isTenant, user?.tenantId]);
 
   const tenant = useMemo(() => {
     if (!user) return null;
-    // userId is the authoritative link; email is the fallback for tenants who
-    // were created by a manager before they ever signed in.
+    if (isTenant && isFirebaseConfigured()) return ownRecord;
+    // Demo mode and staff: match within the roster. userId is the authoritative
+    // link; email is the fallback for tenants created by a manager before they
+    // ever signed in.
     return (
       tenants.find((t) => t.userId && t.userId === user.id) ??
       tenants.find((t) => sameEmail(t.email, user.email)) ??
       null
     );
-  }, [user, tenants]);
+  }, [user, isTenant, ownRecord, tenants]);
 
-  return { tenant, loading };
+  return { tenant, loading: isTenant ? ownLoading : rosterLoading };
+}
+
+// ============================================
+// Notifications Hook
+// ============================================
+
+/**
+ * In-app notifications for the signed-in user.
+ *
+ * Managers and owners see the org's "manager" notifications; tenants see only
+ * the ones addressed to them. Most are written server-side by the Stripe
+ * webhook, so this hook only ever reads and marks them read.
+ */
+export function useNotifications() {
+  const user = useAuthStore((s) => s.user);
+  const { tenant } = useCurrentTenant();
+  const { data: all, setData: setAll, loading, isLive } =
+    useFirestoreCollection<Notification>(
+      Collections.NOTIFICATIONS, mockNotifications, true,
+      useTenantFilter("tenantId")
+    );
+
+  const notifications = useMemo(() => {
+    const isTenant = user?.role === "tenant";
+    return all
+      .filter((n) =>
+        isTenant
+          ? n.audience === "tenant" && (!n.tenantId || n.tenantId === tenant?.id)
+          : n.audience === "manager"
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [all, user?.role, tenant?.id]);
+
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications]
+  );
+
+  const markAsRead = useCallback(async (id: string) => {
+    setAll((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try {
+      await updateDocument(Collections.NOTIFICATIONS, id, { read: true });
+    } catch { /* demo mode or offline — local state already updated */ }
+  }, [setAll]);
+
+  const markAllAsRead = useCallback(async () => {
+    const unread = notifications.filter((n) => !n.read);
+    setAll((prev) => prev.map((n) => ({ ...n, read: true })));
+    await Promise.all(
+      unread.map((n) =>
+        updateDocument(Collections.NOTIFICATIONS, n.id, { read: true }).catch(() => {})
+      )
+    );
+  }, [notifications, setAll]);
+
+  return { notifications, unreadCount, loading, isLive, markAsRead, markAllAsRead };
 }
 
 /** The Vendor record for the signed-in contractor, or null if they aren't one. */

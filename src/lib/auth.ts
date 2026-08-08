@@ -98,6 +98,11 @@ async function getOrCreateUserProfile(user: User): Promise<UserProfile> {
         role: data.role || "manager",
         orgId: data.orgId || `org-${user.uid.slice(0, 8)}`,
         phone: data.phone,
+        // Both link the login to a domain record and drive security rules —
+        // dropping them here left contractors and tenants unable to reach their
+        // own work orders and leases.
+        vendorId: data.vendorId,
+        tenantId: data.tenantId,
         createdAt: data.createdAt?.toDate?.().toISOString() || new Date().toISOString(),
         lastLoginAt: new Date().toISOString(),
       };

@@ -1,4 +1,59 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "_comment": "Tenant portal: leases naming the signed-in tenant. subscribeToCollection always adds orgId, so every tenant-scoped query is a composite.",
+      "collectionGroup": "leases",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "orgId", "order": "ASCENDING" },
+        { "fieldPath": "tenantIds", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "_comment": "Tenant portal: own payment history.",
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "orgId", "order": "ASCENDING" },
+        { "fieldPath": "tenantId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "_comment": "Tenant portal: own maintenance requests.",
+      "collectionGroup": "maintenance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "orgId", "order": "ASCENDING" },
+        { "fieldPath": "tenantId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "_comment": "Tenant portal: own sublet requests.",
+      "collectionGroup": "sublets",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "orgId", "order": "ASCENDING" },
+        { "fieldPath": "tenantId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "_comment": "Tenant portal: own notifications.",
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "orgId", "order": "ASCENDING" },
+        { "fieldPath": "tenantId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "_comment": "Tenant portal: inspections of the tenant's own tenancy (move-in/move-out condition reports).",
+      "collectionGroup": "inspections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "orgId", "order": "ASCENDING" },
+        { "fieldPath": "tenantId", "order": "ASCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

@@ -62,6 +62,8 @@ export default function TenantPaymentsPage() {
           description={`Rent — Unit ${myLease.unitId}`}
           leaseId={myLease.id}
           tenantId={myTenant?.id || ""}
+          orgId={myLease.orgId}
+          email={myTenant?.email}
           onSuccess={handlePaymentSuccess}
           onError={(err) => toast.error(err)}
         />

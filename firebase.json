@@ -1,6 +1,9 @@
 {
   "hosting": {
     "source": ".",
+    "predeploy": [
+      "node scripts/clean-dev-cache.mjs"
+    ],
     "ignore": [
       "firebase.json",
       "**/.*",
