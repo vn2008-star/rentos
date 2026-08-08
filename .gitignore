@@ -41,3 +41,9 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# firebase emulator artifacts
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+.firebase/
