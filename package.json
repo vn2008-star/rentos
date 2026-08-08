@@ -9,6 +9,7 @@
     "lint": "eslint",
     "seed": "tsx scripts/seed-firestore.ts",
     "link-org": "tsx scripts/link-user-to-org.ts",
+    "icons": "node scripts/generate-icons.mjs",
     "preview": "next build && next start",
     "test:rules": "firebase emulators:exec --only firestore --project demo-rentos \"node --test tests/**/*.test.mjs\""
   },

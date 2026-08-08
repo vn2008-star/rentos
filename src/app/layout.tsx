@@ -17,7 +17,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#6d28d9",
+  // Brand cyan, matching .gradient-brand and manifest.json. Was violet, which
+  // matched nothing in the interface.
+  themeColor: "#0090B4",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -32,7 +34,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" data-scroll-behavior="smooth">
       <head>
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        {/* Safari ignores the manifest and looks for this by convention. It is
+            rendered at 180px, the size iOS actually wants, rather than pointing
+            at the 192 and letting the phone downscale it. */}
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
       </head>
       <body className="antialiased">
         <AuthProvider>
