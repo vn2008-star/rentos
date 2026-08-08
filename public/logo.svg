@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 72" role="img" aria-label="RentOS — Davis Property Management">
+  <title>RentOS — Davis Property Management</title>
+  <!--
+    Horizontal lockup for use outside the app: documents, email signatures,
+    listing headers.
+    Inside the app the mark is paired with live HTML text instead, so the
+    wordmark always matches the interface font.
+  -->
+  <defs>
+    <linearGradient id="rentos-brand-lockup" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0090B4"/>
+      <stop offset="100%" stop-color="#19C2A8"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(6, 4)">
+    <g fill="none" stroke="url(#rentos-brand-lockup)" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 21 L32 7 L53 21" stroke-width="4.5"/>
+      <circle cx="32" cy="40" r="17" stroke-width="4"/>
+      <g stroke-width="2" opacity="0.9">
+        <line x1="32" y1="23" x2="32" y2="57"/>
+        <line x1="15" y1="40" x2="49" y2="40"/>
+        <line x1="20" y1="28" x2="44" y2="52"/>
+        <line x1="44" y1="28" x2="20" y2="52"/>
+        <ellipse cx="32" cy="40" rx="8" ry="17"/>
+        <ellipse cx="32" cy="40" rx="17" ry="8"/>
+      </g>
+      <circle cx="32" cy="40" r="3.2" stroke-width="3"/>
+    </g>
+  </g>
+
+  <text x="82" y="38"
+        font-family="ui-sans-serif, system-ui, 'Segoe UI', Inter, Helvetica, Arial, sans-serif"
+        font-size="30" font-weight="700" letter-spacing="-0.6"
+        fill="url(#rentos-brand-lockup)">RentOS</text>
+
+  <text x="83" y="55"
+        font-family="ui-sans-serif, system-ui, 'Segoe UI', Inter, Helvetica, Arial, sans-serif"
+        font-size="9.5" font-weight="600" letter-spacing="2.4"
+        fill="currentColor" opacity="0.6">DAVIS · PROPERTY MANAGEMENT</text>
+</svg>

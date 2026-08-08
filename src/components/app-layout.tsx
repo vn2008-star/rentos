@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/lib/store";
 import { NotificationBell } from "@/components/notification-bell";
+import { RentosMark } from "@/components/rentos-mark";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -77,7 +78,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {/* Logo */}
           <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-4">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg gradient-brand shadow-lg shadow-primary/25">
-              <Building2 className="h-5 w-5 text-white" />
+              <RentosMark className="h-6 w-6 text-white" />
             </div>
             {!collapsed && (
               <div className="flex flex-col overflow-hidden">

@@ -2,7 +2,8 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { RentosMark } from "@/components/rentos-mark";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,7 +103,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center space-y-3">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl gradient-brand shadow-lg shadow-primary/25">
-            <Building2 className="h-7 w-7 text-white" />
+            <RentosMark className="h-8 w-8 text-white" />
           </div>
           <div>
             <h1 className="text-3xl font-bold font-heading tracking-tight">RentOS</h1>
