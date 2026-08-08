@@ -188,10 +188,17 @@ export function calculateSTRRate(pricing: STRPricing, date: Date): number {
     rate *= (1 + pricing.weekendPremiumPercent / 100);
   }
 
-  // Seasonal multiplier
+  // Seasonal multiplier.
+  //
+  // A season may wrap the new year — "Nov to Feb" is an ordinary way to write
+  // winter, and start > end there. A plain `month >= start && month <= end`
+  // can never be true in that case, so wrapping seasons were silently ignored
+  // and every winter night was quoted at the base rate.
   const month = date.getMonth() + 1;
-  const seasonal = pricing.seasonalRates.find(
-    s => month >= s.startMonth && month <= s.endMonth
+  const seasonal = pricing.seasonalRates.find(s =>
+    s.startMonth <= s.endMonth
+      ? month >= s.startMonth && month <= s.endMonth
+      : month >= s.startMonth || month <= s.endMonth
   );
   if (seasonal) {
     rate *= seasonal.rateMultiplier;

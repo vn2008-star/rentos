@@ -81,7 +81,9 @@ export function generateRentRoll(
         .reduce((s, p) => s + p.amount, 0);
 
       const { overdue, lateFeeAmount } = isRentOverdue(lease, payments, month);
-      const totalDue = lease.rentAmount + lateFeeAmount;
+      // What is still owed, not what was originally billed. Ignoring money
+      // already received would re-bill a tenant who has part-paid.
+      const totalDue = Math.max(0, lease.rentAmount + lateFeeAmount - paidAmount);
 
       let status: RentRollEntry["status"] = "pending";
       if (paidAmount >= lease.rentAmount) status = "paid";
@@ -108,10 +110,17 @@ export function generateRentRoll(
  * Check for leases expiring within N days and return them.
  */
 export function getExpiringLeases(leases: Lease[], withinDays = 30): Lease[] {
-  const cutoff = addDays(new Date(), withinDays);
-  return leases.filter(
-    (l) => (l.status === "active" || l.status === "month_to_month") && isBefore(parseISO(l.endDate), cutoff)
-  );
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const cutoff = addDays(now, withinDays);
+  return leases.filter((l) => {
+    if (l.status !== "active" && l.status !== "month_to_month") return false;
+    const end = parseISO(l.endDate);
+    // Bounded at both ends. Without a floor this returned every lease that had
+    // ever ended — a lease abandoned in "active" two years ago would sit at the
+    // top of a renewals list forever.
+    return isBefore(end, cutoff) && !isBefore(end, today);
+  });
 }
 
 /**
