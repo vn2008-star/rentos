@@ -23,6 +23,17 @@ service cloud.firestore {
       return profile.role in ['super_admin', 'owner', 'manager'];
     }
 
+    // Staff roles only. Contractors and tenants also carry the org's orgId (they
+    // need it for job/lease context), so belongsToOrg() alone would hand them
+    // full staff privileges — always pair it with this for staff-only paths.
+    function isStaff() {
+      return getUserProfile().role in ['super_admin', 'owner', 'manager', 'leasing_agent', 'maintenance'];
+    }
+
+    function isOrgStaff(orgId) {
+      return belongsToOrg(orgId) && isStaff();
+    }
+
     // Contractor accounts carry a vendorId linking the login to a Vendor record.
     // get() with a default keeps this from erroring on profiles without the field.
     function callerVendorId() {
@@ -158,14 +169,14 @@ service cloud.firestore {
     // Org staff manage all work orders; a contractor reaches only the ones
     // assigned to their own vendor record.
     match /work_orders/{workOrderId} {
-      allow read: if belongsToOrg(resource.data.orgId)
+      allow read: if isOrgStaff(resource.data.orgId)
                   || isAssignedVendor(resource.data.vendorId);
-      allow create: if isSignedIn() && belongsToOrg(request.resource.data.orgId);
-      allow update: if belongsToOrg(resource.data.orgId)
+      allow create: if isSignedIn() && isOrgStaff(request.resource.data.orgId);
+      allow update: if isOrgStaff(resource.data.orgId)
                     || (isAssignedVendor(resource.data.vendorId)
                         && request.resource.data.vendorId == resource.data.vendorId
                         && request.resource.data.orgId == resource.data.orgId);
-      allow delete: if belongsToOrg(resource.data.orgId) && isOwnerOrManager();
+      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
   }
 }
