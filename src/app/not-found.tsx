@@ -1,4 +1,5 @@
-import { Building2, ArrowLeft, Home } from "lucide-react";
+import { ArrowLeft, Home } from "lucide-react";
+import { RentosMark } from "@/components/rentos-mark";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 
@@ -7,7 +8,7 @@ export default function NotFound() {
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <div className="text-center max-w-md space-y-6">
         <div className="mx-auto h-16 w-16 rounded-2xl gradient-brand shadow-lg shadow-primary/25 flex items-center justify-center">
-          <Building2 className="h-8 w-8 text-white" />
+          <RentosMark className="h-9 w-9 text-white" />
         </div>
         <div>
           <h1 className="text-6xl font-bold font-heading bg-gradient-to-r from-primary to-primary/50 bg-clip-text text-transparent">

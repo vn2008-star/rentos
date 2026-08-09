@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Wrench, CheckCircle2, Loader2, Camera, Building2 } from "lucide-react";
+import { RentosMark } from "@/components/rentos-mark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,7 +114,7 @@ export default function PublicReportPage() {
       <header className="border-b border-border/50 bg-card/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg gradient-brand flex items-center justify-center">
-            <Building2 className="h-4 w-4 text-white" />
+            <RentosMark className="h-5 w-5 text-white" />
           </div>
           <div>
             <h1 className="text-sm font-bold font-heading">RentOS</h1>

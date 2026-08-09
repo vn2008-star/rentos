@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
 import Link from "next/link";
 import {
-  Building2, Loader2, ArrowRight, Shield, Zap, BarChart3,
+  // Still used as a content icon for "properties"; the logo is RentosMark.
+  Building2,
+  Loader2, ArrowRight, Shield, Zap, BarChart3,
   CreditCard, Wrench, Users, ChevronRight, Star, Check,
   Smartphone, Globe, Lock,
 } from "lucide-react";
+import { RentosMark } from "@/components/rentos-mark";
 import { Button } from "@/components/ui/button";
 
 const features = [
@@ -91,7 +94,7 @@ export default function LandingPage() {
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="text-center space-y-4">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl gradient-brand shadow-lg shadow-primary/25 animate-pulse">
-            <Building2 className="h-7 w-7 text-white" />
+            <RentosMark className="h-8 w-8 text-white" />
           </div>
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -109,7 +112,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="h-9 w-9 rounded-xl gradient-brand flex items-center justify-center shadow-lg shadow-primary/30">
-              <Building2 className="h-5 w-5 text-white" />
+              <RentosMark className="h-6 w-6 text-white" />
             </div>
             <span className="text-xl font-bold font-heading">RentOS</span>
           </div>
@@ -340,7 +343,7 @@ export default function LandingPage() {
       <section className="py-24 px-6">
         <div className="max-w-3xl mx-auto text-center rounded-3xl border border-primary/20 bg-gradient-to-b from-primary/10 to-transparent p-12">
           <div className="h-14 w-14 rounded-2xl gradient-brand flex items-center justify-center mx-auto mb-6 shadow-lg shadow-primary/30">
-            <Building2 className="h-7 w-7 text-white" />
+            <RentosMark className="h-8 w-8 text-white" />
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold font-heading mb-4">
             Ready to modernize your portfolio?
@@ -369,7 +372,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-lg gradient-brand flex items-center justify-center">
-              <Building2 className="h-4 w-4 text-white" />
+              <RentosMark className="h-5 w-5 text-white" />
             </div>
             <span className="font-bold font-heading">RentOS</span>
           </div>

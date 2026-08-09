@@ -4,7 +4,8 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store";
 import type { UserRole } from "@/lib/types";
-import { Building2, Loader2, ShieldX } from "lucide-react";
+import { Loader2, ShieldX } from "lucide-react";
+import { RentosMark } from "@/components/rentos-mark";
 
 export function AuthGuard({
   children,
@@ -28,7 +29,7 @@ export function AuthGuard({
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="text-center space-y-4">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl gradient-brand shadow-lg shadow-primary/25 animate-pulse">
-            <Building2 className="h-7 w-7 text-white" />
+            <RentosMark className="h-8 w-8 text-white" />
           </div>
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
             <Loader2 className="h-4 w-4 animate-spin" />
