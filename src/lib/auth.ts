@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
   updateProfile,
   sendPasswordResetEmail,
+  sendEmailVerification,
   type User,
 } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
@@ -33,6 +34,15 @@ export async function registerWithEmail(
 ) {
   const cred = await createUserWithEmailAndPassword(auth, email, password);
   await updateProfile(cred.user, { displayName });
+
+  // Automatic linking to an existing tenancy only happens once the address is
+  // verified — otherwise anyone who knew a tenant's email could register with
+  // it and read that tenant's lease and payments. Google sign-in arrives
+  // verified; email/password needs this.
+  sendEmailVerification(cred.user).catch((err) => {
+    console.warn("Could not send the verification email", err);
+  });
+
   const profile = await createUserProfile(cred.user, displayName, role);
   return profile;
 }
@@ -116,6 +126,37 @@ async function getOrCreateUserProfile(user: User): Promise<UserProfile> {
 }
 
 // ============================================
+// Tenancy Claim
+// ============================================
+
+/**
+ * Asks the server whether this account matches a Tenant record by email, and
+ * links them if so.
+ *
+ * The write itself has to happen server-side: orgId, role and tenantId drive
+ * every security rule, so the rules forbid a client from setting them on its
+ * own profile. See src/app/api/auth/claim-tenancy/route.ts.
+ *
+ * Returns true when a link was made, so the caller can re-read the profile.
+ */
+async function claimTenancy(user: User): Promise<boolean> {
+  try {
+    const token = await user.getIdToken();
+    const res = await fetch("/api/auth/claim-tenancy", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.linked === true;
+  } catch {
+    // Never block sign-in on this — an unlinked account still works, it just
+    // shows an empty portal until the link is made.
+    return false;
+  }
+}
+
+// ============================================
 // Auth State Observer
 // ============================================
 
@@ -123,7 +164,17 @@ export function onAuthChange(callback: (profile: UserProfile | null) => void) {
   return onAuthStateChanged(auth, async (user) => {
     if (user) {
       try {
-        const profile = await getOrCreateUserProfile(user);
+        let profile = await getOrCreateUserProfile(user);
+
+        // A tenant a manager entered by hand can just sign up: if their address
+        // matches a Tenant record, the server links the two. Only attempted
+        // when the profile is not already linked, so this costs one request
+        // once rather than on every sign-in.
+        if (!profile.tenantId && !profile.vendorId) {
+          const linked = await claimTenancy(user);
+          if (linked) profile = await getOrCreateUserProfile(user);
+        }
+
         callback(profile);
       } catch {
         // Fallback profile from Firebase Auth only

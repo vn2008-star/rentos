@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { registerWithEmail, loginWithGoogle } from "@/lib/auth";
 import { useAuthStore } from "@/lib/store";
+import toast from "react-hot-toast";
 import { Separator } from "@/components/ui/separator";
 import type { UserRole } from "@/lib/types";
 import Link from "next/link";
@@ -32,7 +33,14 @@ export default function RegisterPage() {
     try {
       const profile = await registerWithEmail(form.email, form.password, form.name, form.role);
       setUser(profile);
-      router.push("/dashboard");
+      // A tenant whose email matches a record we already hold is linked to it
+      // automatically, but only once the address is verified. Without this
+      // they would land on an empty portal with no explanation.
+      toast.success(
+        "Account created — check your email and click the verification link, then sign in again.",
+        { duration: 8000 }
+      );
+      router.push(profile.role === "tenant" ? "/portal" : "/dashboard");
     } catch (err: any) {
       const code = err?.code || "";
       if (code === "auth/email-already-in-use") { setError("An account with this email already exists."); }
