@@ -67,6 +67,23 @@ export async function updateDocument(
   });
 }
 
+/**
+ * Writes exactly the given fields — no updatedAt stamp.
+ *
+ * Some rules pin down which keys a write may touch. Notifications are the
+ * case that bit us: the rule allows a client to flip `read` and nothing else,
+ * so the updatedAt that updateDocument adds made every "mark as read" fail
+ * permission checks. The failure was invisible — the badge cleared optimistically
+ * and came back on the next reload.
+ */
+export async function updateDocumentFields(
+  collectionName: string,
+  docId: string,
+  data: Partial<DocumentData>
+): Promise<void> {
+  await updateDoc(doc(db, collectionName, docId), data);
+}
+
 export async function deleteDocument(
   collectionName: string,
   docId: string

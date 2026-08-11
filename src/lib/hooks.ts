@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { where, type WhereFilterOp } from "firebase/firestore";
 import { useAuthStore } from "./store";
 import {
-  createDocument, queryDocuments, updateDocument, deleteDocument,
-  subscribeToCollection, uploadMultipleFiles, getDocument, Collections,
+  createDocument, queryDocuments, updateDocument, updateDocumentFields,
+  deleteDocument, subscribeToCollection, uploadMultipleFiles, getDocument,
+  Collections,
 } from "./firestore";
 import { isFirebaseConfigured } from "./demo";
 import {
@@ -1309,11 +1310,17 @@ export function useNotifications() {
     [notifications]
   );
 
+  // updateDocumentFields, not updateDocument: the rule for notifications allows
+  // a client to change `read` and nothing else, so the updatedAt stamp the
+  // latter adds made every one of these writes fail — silently, because the
+  // optimistic local update hid it until the page was reloaded.
   const markAsRead = useCallback(async (id: string) => {
     setAll((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     try {
-      await updateDocument(Collections.NOTIFICATIONS, id, { read: true });
-    } catch { /* demo mode or offline — local state already updated */ }
+      await updateDocumentFields(Collections.NOTIFICATIONS, id, { read: true });
+    } catch (err) {
+      console.error("Could not mark the notification as read", err);
+    }
   }, [setAll]);
 
   const markAllAsRead = useCallback(async () => {
@@ -1321,7 +1328,9 @@ export function useNotifications() {
     setAll((prev) => prev.map((n) => ({ ...n, read: true })));
     await Promise.all(
       unread.map((n) =>
-        updateDocument(Collections.NOTIFICATIONS, n.id, { read: true }).catch(() => {})
+        updateDocumentFields(Collections.NOTIFICATIONS, n.id, { read: true }).catch(
+          (err) => console.error("Could not mark the notification as read", err)
+        )
       )
     );
   }, [notifications, setAll]);

@@ -16,7 +16,12 @@ import { Button } from "@/components/ui/button";
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/lib/store";
+import { useQuickAddStore, type QuickAddTarget } from "@/lib/quick-add";
 import { NotificationBell } from "@/components/notification-bell";
 import { RentosMark } from "@/components/rentos-mark";
 
@@ -39,6 +44,26 @@ const navItems = [
   { label: "Leases", href: "/leases", icon: BedDouble },
 ];
 
+/**
+ * What Quick Add adds. Each entry navigates to the page that owns the record
+ * and opens its existing add dialog — one shortcut rather than a second,
+ * divergent copy of every form.
+ */
+const quickAddItems: {
+  label: string;
+  href: string;
+  target: QuickAddTarget;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { label: "Property", href: "/properties", target: "property", icon: Building2 },
+  { label: "Unit", href: "/units", target: "unit", icon: Home },
+  { label: "Tenant", href: "/tenants", target: "tenant", icon: Users },
+  { label: "Lease", href: "/leases", target: "lease", icon: BedDouble },
+  { label: "Maintenance request", href: "/maintenance", target: "maintenance", icon: Wrench },
+  { label: "Calendar event", href: "/calendar", target: "event", icon: CalendarDays },
+  { label: "Vendor", href: "/vendors", target: "vendor", icon: HardHat },
+];
+
 const bottomItems = [
   { label: "Team", href: "/team", icon: Users },
   { label: "Billing", href: "/billing", icon: CreditCard },
@@ -52,6 +77,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const logoutFn = useAuthStore((s) => s.logout);
+  const requestQuickAdd = useQuickAddStore((s) => s.request);
 
   const handleLogout = async () => {
     await logoutFn();
@@ -249,10 +275,36 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
             <div className="flex items-center gap-2 ml-auto">
               <NotificationBell />
-              <Button size="sm" className="gradient-brand text-white border-0 shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-shadow gap-1.5">
-                <Plus className="h-4 w-4" />
-                <span className="hidden sm:inline">Quick Add</span>
-              </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button size="sm" className="gradient-brand text-white border-0 shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-shadow gap-1.5">
+                      <Plus className="h-4 w-4" />
+                      <span className="hidden sm:inline">Quick Add</span>
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Add new</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {quickAddItems.map((item) => (
+                    <DropdownMenuItem
+                      key={item.target}
+                      className="cursor-pointer gap-2.5"
+                      onClick={() => {
+                        // The dialog lives on the destination page; the store
+                        // carries the intent across the navigation.
+                        requestQuickAdd(item.target);
+                        router.push(item.href);
+                      }}
+                    >
+                      <item.icon className="h-4 w-4 text-muted-foreground" />
+                      {item.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </header>
 

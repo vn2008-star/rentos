@@ -16,6 +16,7 @@ import { ESignature } from "@/components/e-signature";
 import type { Lease, LeaseStatus } from "@/lib/types";
 import { format, differenceInDays, parseISO } from "date-fns";
 import toast from "react-hot-toast";
+import { useQuickAdd } from "@/lib/quick-add";
 
 const statusConfig: Record<LeaseStatus, { color: string; label: string }> = {
   draft: { color: "bg-gray-500/15 text-gray-400 border-gray-500/30", label: "Draft" },
@@ -33,6 +34,8 @@ export default function LeasesPage() {
   const { tenants } = useTenants();
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  // Opens this dialog when Quick Add in the top bar asked for it.
+  useQuickAdd("lease", () => setShowAdd(true));
   const [selectedLease, setSelectedLease] = useState<Lease | null>(null);
   const [showSign, setShowSign] = useState(false);
   const [saving, setSaving] = useState(false);

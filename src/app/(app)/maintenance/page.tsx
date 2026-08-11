@@ -17,6 +17,7 @@ import { useMaintenance, useUnits, useProperties, useTenants, useVendors, useWor
 import type { MaintenanceCategory, MaintenancePriority, MaintenanceStatus, ReporterType } from "@/lib/types";
 import { buildTimeline, getReporterLabel, getReporterBadge, formatTimeAgo, KANBAN_COLUMNS, STATUS_STEPS, getStatusStep } from "@/lib/maintenance-engine";
 import toast from "react-hot-toast";
+import { useQuickAdd } from "@/lib/quick-add";
 
 const priorityConfig: Record<MaintenancePriority, { label: string; color: string; icon: typeof AlertTriangle }> = {
   emergency: { label: "Emergency", color: "text-red-400 bg-red-500/15 border-red-500/30", icon: AlertTriangle },
@@ -53,6 +54,8 @@ export default function MaintenancePage() {
   const { workOrders, createWorkOrder, approveOrder, rejectOrder } = useWorkOrders();
 
   const [showAdd, setShowAdd] = useState(false);
+  // Opens this dialog when Quick Add in the top bar asked for it.
+  useQuickAdd("maintenance", () => setShowAdd(true));
   const [showAssign, setShowAssign] = useState<string | null>(null);
   const [showDetail, setShowDetail] = useState<string | null>(null);
   const [showResolve, setShowResolve] = useState<string | null>(null);

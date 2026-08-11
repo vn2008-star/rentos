@@ -15,6 +15,7 @@ import { PhotoUpload } from "@/components/photo-upload";
 import { useProperties, useUnits } from "@/lib/hooks";
 import type { PropertyType } from "@/lib/types";
 import toast from "react-hot-toast";
+import { useQuickAdd } from "@/lib/quick-add";
 
 const typeIcons: Record<PropertyType, string> = { apartment: "🏢", single_family: "🏠", condo: "🏬", room: "🛏️", airbnb: "✈️", townhouse: "🏘️" };
 const typeColors: Record<PropertyType, string> = { apartment: "bg-blue-500/15 text-blue-400 border-blue-500/30", single_family: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", condo: "bg-violet-500/15 text-violet-400 border-violet-500/30", room: "bg-amber-500/15 text-amber-400 border-amber-500/30", airbnb: "bg-rose-500/15 text-rose-400 border-rose-500/30", townhouse: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30" };
@@ -23,6 +24,8 @@ export default function PropertiesPage() {
   const { properties, loading, isLive, addProperty, removeProperty } = useProperties();
   const { units } = useUnits();
   const [showAdd, setShowAdd] = useState(false);
+  // Opens this dialog when Quick Add in the top bar asked for it.
+  useQuickAdd("property", () => setShowAdd(true));
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [photos, setPhotos] = useState<(File | string)[]>([]);

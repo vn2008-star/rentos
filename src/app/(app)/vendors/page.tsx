@@ -18,6 +18,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useVendors, useWorkOrders } from "@/lib/hooks";
 import type { MaintenanceCategory } from "@/lib/types";
 import toast from "react-hot-toast";
+import { useQuickAdd } from "@/lib/quick-add";
 
 const categoryLabels: Record<MaintenanceCategory, string> = {
   plumbing: "🔧 Plumbing", electrical: "⚡ Electrical", hvac: "❄️ HVAC", appliance: "🍽️ Appliance",
@@ -41,6 +42,8 @@ export default function VendorsPage() {
   const { vendors, loading, isLive, addVendor, editVendor, removeVendor } = useVendors();
   const { workOrders } = useWorkOrders();
   const [showAdd, setShowAdd] = useState(false);
+  // Opens this dialog when Quick Add in the top bar asked for it.
+  useQuickAdd("vendor", () => setShowAdd(true));
   const [showDetail, setShowDetail] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filterSpecialty, setFilterSpecialty] = useState<string>("all");

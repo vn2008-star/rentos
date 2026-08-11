@@ -14,12 +14,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTenants, useUnits, useProperties } from "@/lib/hooks";
 import toast from "react-hot-toast";
+import { useQuickAdd } from "@/lib/quick-add";
 
 export default function TenantsPage() {
   const { tenants, loading, isLive, addTenant, removeTenant } = useTenants();
   const { units } = useUnits();
   const { properties } = useProperties();
   const [showAdd, setShowAdd] = useState(false);
+  // Opens this dialog when Quick Add in the top bar asked for it.
+  useQuickAdd("tenant", () => setShowAdd(true));
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", unitId: "", propertyId: "", notes: "" });

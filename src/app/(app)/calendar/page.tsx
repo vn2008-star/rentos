@@ -22,6 +22,7 @@ import { useCalendar, useUnits, useProperties } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 import type { CalendarEventType } from "@/lib/types";
 import toast from "react-hot-toast";
+import { useQuickAdd } from "@/lib/quick-add";
 
 const EVENT_META: Record<CalendarEventType, {
   label: string; icon: React.ComponentType<{ className?: string }>; tone: string; dot: string;
@@ -62,6 +63,8 @@ export default function CalendarPage() {
   const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState<string>(isoDay(today));
   const [showAdd, setShowAdd] = useState(false);
+  // Opens this dialog when Quick Add in the top bar asked for it.
+  useQuickAdd("event", () => setShowAdd(true));
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<CalendarEventType | "all">("all");
 

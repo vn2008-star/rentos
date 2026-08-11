@@ -15,6 +15,7 @@ import { PhotoUpload } from "@/components/photo-upload";
 import { useUnits, useProperties } from "@/lib/hooks";
 import type { UnitStatus } from "@/lib/types";
 import toast from "react-hot-toast";
+import { useQuickAdd } from "@/lib/quick-add";
 
 const statusConfig: Record<UnitStatus, { label: string; color: string; bg: string }> = {
   available: { label: "Available", color: "text-emerald-400", bg: "bg-emerald-500/15 border-emerald-500/30" },
@@ -30,6 +31,8 @@ export default function UnitsPage() {
   const { units, loading, isLive, addUnit, removeUnit } = useUnits();
   const { properties } = useProperties();
   const [showAdd, setShowAdd] = useState(false);
+  // Opens this dialog when Quick Add in the top bar asked for it.
+  useQuickAdd("unit", () => setShowAdd(true));
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [propertyFilter, setPropertyFilter] = useState("all");
