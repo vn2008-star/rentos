@@ -9,10 +9,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useProperties, useUnits, useTenants, useMaintenance, useApplications } from "@/lib/hooks";
+import { useProperties, useUnits, useTenants, useMaintenance, useApplications, useTransactions } from "@/lib/hooks";
 import { useAuthStore } from "@/lib/store";
 import { PendingTasks } from "@/components/pending-tasks";
-import { mockDashboardStats } from "@/lib/mock-data";
+import { buildRevenueHistory, isEmptyHistory, summariseRevenue } from "@/lib/finance";
 import Link from "next/link";
 
 const statusColors: Record<string, string> = {
@@ -46,6 +46,7 @@ export default function DashboardPage() {
   const { tenants } = useTenants();
   const { requests: maintenanceRequests } = useMaintenance();
   const { applications } = useApplications();
+  const { transactions } = useTransactions();
 
   const isLive = propLive;
 
@@ -57,8 +58,19 @@ export default function DashboardPage() {
   const totalRent = units.filter(u => u.status === "occupied").reduce((s, u) => s + u.rent, 0);
   const pendingMaint = maintenanceRequests.filter(r => !["completed", "closed"].includes(r.status)).length;
 
-  const revenueData = mockDashboardStats.revenueHistory;
-  const maxRevenue = Math.max(...revenueData.map((d) => d.revenue));
+  // The org's own recorded payments, not a sample. An organization with no
+  // transactions gets an empty state below rather than six invented months.
+  const revenueData = React.useMemo(
+    () => buildRevenueHistory(transactions),
+    [transactions]
+  );
+  const revenueTotals = summariseRevenue(revenueData);
+  const noRevenueYet = isEmptyHistory(revenueData);
+  // Guard the divisor: every bar would be NaN% wide on an all-zero history.
+  const maxRevenue = Math.max(
+    1,
+    ...revenueData.map((d) => Math.max(d.revenue, d.expenses))
+  );
 
   const stats = [
     { label: "Total Properties", value: properties.length, icon: Building2, change: `${properties.length} managed`, trend: "up" as const, color: "from-blue-500/20 to-cyan-500/20", iconColor: "text-blue-400" },
@@ -137,7 +149,12 @@ export default function DashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="pt-4">
-            <div className="space-y-3">
+            {noRevenueYet && (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                No payments recorded yet. Rent collected through RentOS appears here.
+              </p>
+            )}
+            <div className={noRevenueYet ? "hidden" : "space-y-3"}>
               {revenueData.map((d) => {
                 const pct = (d.revenue / maxRevenue) * 100;
                 const expPct = (d.expenses / maxRevenue) * 100;
@@ -169,9 +186,16 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="h-2.5 w-2.5 rounded-full bg-destructive/40" /> Expenses
               </div>
-              <div className="ml-auto text-xs font-medium text-emerald-400 flex items-center gap-1">
-                <TrendingUp className="h-3.5 w-3.5" />
-                Net: ${((totalRent - 17300) / 1000).toFixed(1)}k
+              {/* Revenue minus expenses over the same six months. It used to
+                  subtract a hardcoded 17,300 from this month's rent roll, so
+                  every org was shown the same invented loss. */}
+              <div className={`ml-auto flex items-center gap-1 text-xs font-medium ${
+                revenueTotals.net >= 0 ? "text-emerald-400" : "text-red-400"
+              }`}>
+                {revenueTotals.net >= 0
+                  ? <TrendingUp className="h-3.5 w-3.5" />
+                  : <TrendingDown className="h-3.5 w-3.5" />}
+                Net: ${(revenueTotals.net / 1000).toFixed(1)}k
               </div>
             </div>
           </CardContent>

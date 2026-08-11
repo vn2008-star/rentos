@@ -21,19 +21,32 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/lib/store";
+import { useApplications, useMaintenance } from "@/lib/hooks";
 import { useQuickAddStore, type QuickAddTarget } from "@/lib/quick-add";
 import { NotificationBell } from "@/components/notification-bell";
 import { RentosMark } from "@/components/rentos-mark";
 
-const navItems = [
+/**
+ * `badgeKey` names a live count, resolved in the component below.
+ *
+ * These used to be the literals 2 and 3, so every organization was told it had
+ * two applications and three maintenance requests waiting — including one
+ * created a minute ago with neither.
+ */
+const navItems: {
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badgeKey?: "applications" | "maintenance";
+}[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Properties", href: "/properties", icon: Building2 },
   { label: "Units", href: "/units", icon: Home },
   { label: "Tenants", href: "/tenants", icon: Users },
-  { label: "Applications", href: "/applications", icon: FileText, badge: 2 },
+  { label: "Applications", href: "/applications", icon: FileText, badgeKey: "applications" },
   { label: "Calendar", href: "/calendar", icon: CalendarDays },
   { label: "Inspections", href: "/inspections", icon: ClipboardCheck },
-  { label: "Maintenance", href: "/maintenance", icon: Wrench, badge: 3 },
+  { label: "Maintenance", href: "/maintenance", icon: Wrench, badgeKey: "maintenance" },
   { label: "Vendors", href: "/vendors", icon: HardHat },
   { label: "Owner View", href: "/owner", icon: Eye },
   { label: "Portfolio", href: "/portfolio", icon: Briefcase },
@@ -78,6 +91,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const logoutFn = useAuthStore((s) => s.logout);
   const requestQuickAdd = useQuickAddStore((s) => s.request);
+  const { applications } = useApplications();
+  const { requests: maintenanceRequests } = useMaintenance();
+
+  // What is actually waiting for someone: applications still awaiting a
+  // decision, and maintenance that is not finished. A badge showing every
+  // record ever filed would never go down.
+  const badgeCounts = {
+    applications: applications.filter((a) =>
+      ["submitted", "reviewing", "screening"].includes(a.status)
+    ).length,
+    maintenance: maintenanceRequests.filter(
+      (r) => !["completed", "closed"].includes(r.status)
+    ).length,
+  };
 
   const handleLogout = async () => {
     await logoutFn();
@@ -140,6 +167,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
             {navItems.map((item) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+              const badge = item.badgeKey ? badgeCounts[item.badgeKey] : 0;
               const linkContent = (
                 <Link
                   key={item.href}
@@ -159,9 +187,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   {!collapsed && (
                     <>
                       <span className="flex-1 truncate">{item.label}</span>
-                      {item.badge && (
+                      {badge > 0 && (
                         <Badge className="h-5 min-w-5 px-1.5 text-[10px] font-semibold gradient-brand text-white border-0">
-                          {item.badge}
+                          {badge > 99 ? "99+" : badge}
                         </Badge>
                       )}
                     </>
@@ -175,7 +203,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     <TooltipTrigger render={linkContent} />
                     <TooltipContent side="right" className="flex items-center gap-2">
                       {item.label}
-                      {item.badge && <Badge variant="secondary" className="h-5 text-[10px]">{item.badge}</Badge>}
+                      {badge > 0 && <Badge variant="secondary" className="h-5 text-[10px]">{badge}</Badge>}
                     </TooltipContent>
                   </Tooltip>
                 );

@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTransactions, useLeases, useTenants, useProperties, useUnits } from "@/lib/hooks";
-import { mockDashboardStats } from "@/lib/mock-data";
+import { buildRevenueHistory, isEmptyHistory } from "@/lib/finance";
 import type { Transaction } from "@/lib/types";
 import toast from "react-hot-toast";
 
@@ -105,8 +105,14 @@ export default function FinancialsPage() {
     setForm({ type: "rent", amount: "", description: "", tenantId: "", propertyId: "", unitId: "", date: new Date().toISOString().split("T")[0] });
   };
 
-  // Use mock history for the chart until live data accumulates
-  const revenueHistory = mockDashboardStats.revenueHistory;
+  // Built from this organization's own completed transactions. It used to read
+  // mockDashboardStats.revenueHistory — the same six invented months shown to
+  // every organization, on the page whose entire job is to report their money.
+  const revenueHistory = useMemo(() => buildRevenueHistory(transactions), [transactions]);
+  const historyEmpty = isEmptyHistory(revenueHistory);
+  // Was a hardcoded 91,000, which made every bar the wrong length for any org
+  // that was not the sample one.
+  const historyMax = Math.max(1, ...revenueHistory.map(d => d.revenue));
 
   return (
     <div className="space-y-6">
@@ -251,11 +257,16 @@ export default function FinancialsPage() {
           <Card className="border-border/50 bg-card/50">
             <CardHeader><CardTitle className="text-base">Monthly Breakdown</CardTitle></CardHeader>
             <CardContent>
-              <div className="space-y-3">
+              {historyEmpty && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No completed transactions in the last six months.
+                </p>
+              )}
+              <div className={historyEmpty ? "hidden" : "space-y-3"}>
                 {revenueHistory.map(d => (
-                  <div key={d.month} className="flex items-center gap-4 py-2 border-b border-border/30 last:border-0">
+                  <div key={d.key} className="flex items-center gap-4 py-2 border-b border-border/30 last:border-0">
                     <span className="w-10 font-medium text-sm">{d.month}</span>
-                    <div className="flex-1"><div className="h-3 rounded-full gradient-brand" style={{ width: `${(d.revenue / 91000) * 100}%` }} /></div>
+                    <div className="flex-1"><div className="h-3 rounded-full gradient-brand" style={{ width: `${(d.revenue / historyMax) * 100}%` }} /></div>
                     <span className="text-sm font-semibold w-20 text-right">${(d.revenue / 1000).toFixed(1)}k</span>
                     <span className="text-sm text-muted-foreground w-20 text-right">-${(d.expenses / 1000).toFixed(1)}k</span>
                     <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs">${((d.revenue - d.expenses) / 1000).toFixed(1)}k net</Badge>

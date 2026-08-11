@@ -20,6 +20,7 @@ import {
 } from "../src/lib/maintenance-engine";
 import { getScoreInfo, getCreditScoreColor } from "../src/lib/screening";
 import { scoreReference } from "../src/lib/references";
+import { buildRevenueHistory, summariseRevenue, isEmptyHistory } from "../src/lib/finance";
 import {
   generateListingTitle, calculateDaysOnMarket, getListingStats, calculateSTRRate,
 } from "../src/lib/listing-generator";
@@ -573,5 +574,91 @@ describe("calculateSTRRate", () => {
     assert.equal(calculateSTRRate(winter, new Date(2025, 11, 3)), 140);
     // Wednesday in April is outside the season
     assert.equal(calculateSTRRate(winter, new Date(2025, 3, 2)), 100);
+  });
+});
+
+describe("buildRevenueHistory", () => {
+  const NOW = new Date(2026, 7, 11); // 11 Aug 2026
+
+  const txn = (over: Partial<Transaction>): Transaction => ({
+    id: "t", orgId: "org-1", type: "rent", amount: 1000,
+    date: "2026-08-01T00:00:00.000Z", description: "Rent",
+    status: "completed", createdAt: "2026-08-01T00:00:00.000Z",
+    ...over,
+  }) as Transaction;
+
+  test("returns six months, oldest first, ending with the current one", () => {
+    const history = buildRevenueHistory([], 6, NOW);
+    assert.equal(history.length, 6);
+    assert.deepEqual(history.map(m => m.month), ["Mar", "Apr", "May", "Jun", "Jul", "Aug"]);
+    assert.equal(history.at(-1)?.key, "2026-08");
+  });
+
+  test("months with no activity stay in the series as zeroes", () => {
+    // Dropping them would compress the axis so a quiet year looked like a busy
+    // one.
+    const history = buildRevenueHistory([txn({})], 6, NOW);
+    assert.equal(history.filter(m => m.revenue === 0).length, 5);
+  });
+
+  test("rent, deposits and fees count as revenue; maintenance and refunds as expenses", () => {
+    const history = buildRevenueHistory([
+      txn({ type: "rent", amount: 1800 }),
+      txn({ type: "deposit", amount: 900 }),
+      txn({ type: "late_fee", amount: 50 }),
+      txn({ type: "maintenance", amount: 400 }),
+      txn({ type: "refund", amount: 100 }),
+    ], 6, NOW);
+
+    const august = history.at(-1)!;
+    assert.equal(august.revenue, 2750);
+    assert.equal(august.expenses, 500);
+  });
+
+  test("only completed transactions count", () => {
+    // Booking a declined card as revenue is how a rent roll starts lying.
+    const history = buildRevenueHistory([
+      txn({ status: "pending", amount: 5000 }),
+      txn({ status: "failed", amount: 5000 }),
+      txn({ status: "refunded", amount: 5000 }),
+      txn({ status: "completed", amount: 1200 }),
+    ], 6, NOW);
+    assert.equal(history.at(-1)?.revenue, 1200);
+  });
+
+  test("payments outside the window are ignored", () => {
+    const history = buildRevenueHistory([
+      txn({ date: "2025-12-04T00:00:00.000Z", amount: 9999 }),
+    ], 6, NOW);
+    assert.ok(history.every(m => m.revenue === 0));
+  });
+
+  test("a payment late on the last day of a month stays in that month", () => {
+    // Parsing the date instead of reading its YYYY-MM would shift this into
+    // August for anyone west of UTC, moving revenue between reporting periods.
+    const history = buildRevenueHistory([
+      txn({ date: "2026-07-31T23:30:00.000Z", amount: 1500 }),
+    ], 6, NOW);
+    assert.equal(history.find(m => m.key === "2026-07")?.revenue, 1500);
+    assert.equal(history.find(m => m.key === "2026-08")?.revenue, 0);
+  });
+
+  test("a history spanning a year boundary labels its months correctly", () => {
+    const history = buildRevenueHistory([], 6, new Date(2026, 1, 15));
+    assert.deepEqual(history.map(m => m.month), ["Sep", "Oct", "Nov", "Dec", "Jan", "Feb"]);
+    assert.equal(history[0].key, "2025-09");
+  });
+
+  test("summarise nets revenue against expenses", () => {
+    const history = buildRevenueHistory([
+      txn({ type: "rent", amount: 3000 }),
+      txn({ type: "maintenance", amount: 800 }),
+    ], 6, NOW);
+    assert.deepEqual(summariseRevenue(history), { revenue: 3000, expenses: 800, net: 2200 });
+  });
+
+  test("an org with nothing recorded is reported as empty, not as zero revenue", () => {
+    assert.equal(isEmptyHistory(buildRevenueHistory([], 6, NOW)), true);
+    assert.equal(isEmptyHistory(buildRevenueHistory([txn({})], 6, NOW)), false);
   });
 });
