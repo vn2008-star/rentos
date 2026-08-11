@@ -3,7 +3,9 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Loader2, ExternalLink, AlertTriangle, Eye } from "lucide-react";
+import {
+  ShieldCheck, Loader2, ExternalLink, AlertTriangle, Eye, MessageSquare,
+} from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -162,6 +164,10 @@ function AdminConsole() {
           Every organization on the platform
         </p>
       </div>
+
+      <Button variant="outline" className="gap-2" render={<Link href="/admin/feedback" />}>
+        <MessageSquare className="h-4 w-4" /> Customer feedback
+      </Button>
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">

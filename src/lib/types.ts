@@ -110,6 +110,48 @@ export interface Organization {
   updatedAt?: string;
 }
 
+// ----- Product Feedback -----
+export type FeedbackType = "bug" | "feature" | "enhancement" | "feedback";
+
+export type FeedbackStatus =
+  | "new"
+  | "reviewed"
+  | "planned"
+  | "done"
+  | "dismissed";
+
+/**
+ * Something a customer wanted to tell us, from wherever they were standing.
+ *
+ * The page is captured automatically because the answer to "where were you?"
+ * is the first thing needed to act on a bug report and the last thing anyone
+ * remembers to include. Same for the role: "the payments page is broken" means
+ * different things from a manager and from a tenant.
+ *
+ * Replies are written by operators, never by the client, so a submitter cannot
+ * fabricate an answer from us — and the person who sent it can see the status
+ * change, which is what makes it worth their time to write the next one.
+ */
+export interface Feedback {
+  id: string;
+  orgId: string;
+  orgName?: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userRole: UserRole;
+  /** The in-app route they were on, e.g. "/portal/payments". */
+  page: string;
+  type: FeedbackType;
+  message: string;
+  /** Optional 1–5. Absent when they just wanted to report something. */
+  rating?: number | null;
+  status: FeedbackStatus;
+  adminNotes?: string | null;
+  createdAt: string;
+  reviewedAt?: string | null;
+}
+
 // ----- Support Access -----
 /**
  * A RentOS operator's temporary access to one customer's organization.

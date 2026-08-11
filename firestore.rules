@@ -312,6 +312,41 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ============================================
+    // Product Feedback
+    // ============================================
+    // Sent from the widget on every screen. Anyone with a real account may
+    // write one — a tenant's "I cannot see my lease" is worth more than a
+    // manager's relayed version of it — but only about themselves, only into
+    // their own organization, and never already answered.
+    //
+    // Demo visitors are excluded: the demo is open to the internet, and a
+    // writable collection reachable without an account is a spam queue.
+    match /feedback/{feedbackId} {
+      // The submitter, and staff of the organization it came from. Replies come
+      // back to the person who asked, which is what makes it worth writing one.
+      allow read: if isSignedIn()
+                  && (resource.data.userId == request.auth.uid
+                      || isOrgStaff(resource.data.orgId));
+
+      allow create: if hasProfile()
+                    && getUserProfile().role != 'guest'
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.orgId == getUserProfile().orgId
+                    && request.resource.data.status == 'new'
+                    && !('adminNotes' in request.resource.data)
+                    && request.resource.data.type
+                       in ['bug', 'feature', 'enhancement', 'feedback']
+                    && request.resource.data.message is string
+                    && request.resource.data.message.size() > 0
+                    && request.resource.data.message.size() <= 4000;
+
+      // Triage happens through /api/admin/feedback under the operator role.
+      // A client that could write status or adminNotes could answer its own
+      // report in our voice.
+      allow update, delete: if false;
+    }
+
     match /invites/{inviteId} {
       // Staff only, not canViewOrg: an invite's document id is the token that
       // admits its holder to the organization. A read-only demo visitor being

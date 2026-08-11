@@ -24,6 +24,7 @@ import { useAuthStore } from "@/lib/store";
 import { useApplications, useMaintenance } from "@/lib/hooks";
 import { useOrganization } from "@/lib/use-org";
 import { SupportBanner } from "@/components/support-banner";
+import { FeedbackWidget } from "@/components/feedback-widget";
 import { useQuickAddStore, type QuickAddTarget } from "@/lib/quick-add";
 import { NotificationBell } from "@/components/notification-bell";
 import { RentosMark } from "@/components/rentos-mark";
@@ -357,6 +358,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </header>
 
           <SupportBanner />
+      <FeedbackWidget />
 
           {isGuest && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-300 lg:px-6">

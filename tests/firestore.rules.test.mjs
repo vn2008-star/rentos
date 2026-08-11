@@ -890,3 +890,102 @@ describe("support role impersonation", () => {
     await assertFails(getDoc(doc(as("operator2"), "leases", "lease-1")));
   });
 });
+
+// ============================================================
+// Product feedback
+// ============================================================
+
+describe("feedback", () => {
+  const entry = (over = {}) => ({
+    orgId: ORG,
+    userId: "manager",
+    userName: "Manager",
+    userEmail: "m@example.com",
+    userRole: "manager",
+    page: "/dashboard",
+    type: "bug",
+    message: "The revenue chart shows someone else's numbers.",
+    status: "new",
+    createdAt: new Date().toISOString(),
+    ...over,
+  });
+
+  test("a signed-in member can send feedback", async () => {
+    await assertSucceeds(setDoc(doc(as("manager"), "feedback", "fb-1"), entry()));
+  });
+
+  test("a tenant can send it too", async () => {
+    // A tenant's "I cannot see my lease" is worth more than a relayed version.
+    await assertSucceeds(
+      setDoc(doc(as("tenant"), "feedback", "fb-tenant"), entry({
+        userId: "tenant", userRole: "tenant", page: "/portal/lease",
+      }))
+    );
+  });
+
+  test("it cannot be filed in somebody else's name", async () => {
+    await assertFails(
+      setDoc(doc(as("tenant"), "feedback", "fb-forged"), entry({ userId: "manager" }))
+    );
+  });
+
+  test("it cannot be filed into another organisation", async () => {
+    await assertFails(
+      setDoc(doc(as("manager"), "feedback", "fb-cross"), entry({ orgId: OTHER_ORG }))
+    );
+  });
+
+  test("it cannot arrive pre-answered", async () => {
+    // Otherwise a customer could publish a reply in our voice.
+    await assertFails(
+      setDoc(doc(as("manager"), "feedback", "fb-answered"), entry({
+        adminNotes: "We have fixed this, honest.",
+      }))
+    );
+  });
+
+  test("it cannot arrive already resolved", async () => {
+    await assertFails(
+      setDoc(doc(as("manager"), "feedback", "fb-done"), entry({ status: "done" }))
+    );
+  });
+
+  test("an empty or enormous message is rejected", async () => {
+    await assertFails(setDoc(doc(as("manager"), "feedback", "fb-empty"), entry({ message: "" })));
+    await assertFails(
+      setDoc(doc(as("manager"), "feedback", "fb-huge"), entry({ message: "x".repeat(5000) }))
+    );
+  });
+
+  test("a demo visitor cannot send any", async () => {
+    // The demo is open to the internet; a writable collection there is a spam queue.
+    await assertFails(
+      setDoc(doc(as("guest"), "feedback", "fb-guest"), entry({ userId: "guest", userRole: "guest" }))
+    );
+  });
+
+  test("the sender can read their own", async () => {
+    await assertSucceeds(getDoc(doc(as("manager"), "feedback", "fb-1")));
+  });
+
+  test("a tenant cannot read another person's feedback", async () => {
+    await assertFails(getDoc(doc(as("tenant2"), "feedback", "fb-tenant")));
+  });
+
+  test("another organisation cannot read it", async () => {
+    await assertFails(getDoc(doc(as("outsider"), "feedback", "fb-1")));
+  });
+
+  test("nobody can answer their own feedback", async () => {
+    // Replies go through /api/admin/feedback under the operator role.
+    await assertFails(
+      updateDoc(doc(as("manager"), "feedback", "fb-1"), {
+        status: "done", adminNotes: "Fixed by me.",
+      })
+    );
+  });
+
+  test("nobody can delete feedback", async () => {
+    await assertFails(deleteDoc(doc(as("manager"), "feedback", "fb-1")));
+  });
+});

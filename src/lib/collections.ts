@@ -20,6 +20,8 @@ export const Collections = {
   SUPPORT_SESSIONS: "support_sessions",
   /** Immutable record of who looked at whose data, when, and why. */
   SUPPORT_AUDIT: "support_audit",
+  /** Bug reports and requests sent from inside the app. */
+  FEEDBACK: "feedback",
   PROPERTIES: "properties",
   UNITS: "units",
   TENANTS: "tenants",

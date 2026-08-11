@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store";
 import { AuthGuard } from "@/components/auth-guard";
 import { SupportBanner } from "@/components/support-banner";
+import { FeedbackWidget } from "@/components/feedback-widget";
 
 const navItems = [
   { label: "Dashboard", href: "/portal", icon: Home },
@@ -41,6 +42,7 @@ function TenantShell({ children }: { children: React.ReactNode }) {
           someone else's tenancy for your own would do the most damage in this
           shell, so the banner belongs here more than anywhere. */}
       <SupportBanner />
+      <FeedbackWidget />
 
       {/* Top Bar */}
       <header className="sticky top-0 z-50 h-14 border-b border-border/50 bg-card/80 backdrop-blur-xl flex items-center px-4 sm:px-6 justify-between">
