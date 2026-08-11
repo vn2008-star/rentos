@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/lib/store";
 import { useApplications, useMaintenance } from "@/lib/hooks";
+import { useOrganization } from "@/lib/use-org";
 import { useQuickAddStore, type QuickAddTarget } from "@/lib/quick-add";
 import { NotificationBell } from "@/components/notification-bell";
 import { RentosMark } from "@/components/rentos-mark";
@@ -91,6 +92,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   const logoutFn = useAuthStore((s) => s.logout);
   const requestQuickAdd = useQuickAddStore((s) => s.request);
+  const isGuest = user?.role === "guest";
+  const { org } = useOrganization();
   const { applications } = useApplications();
   const { requests: maintenanceRequests } = useMaintenance();
 
@@ -302,8 +305,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex items-center gap-2 ml-auto">
-              <NotificationBell />
-
+              {/* A demo visitor is shown the way out, not a Quick Add they
+                  cannot use. Every write is refused by the rules regardless. */}
+              {isGuest ? (
+                <>
+                  <Badge variant="outline" className="hidden gap-1.5 border-amber-500/30 py-1 text-xs text-amber-400 sm:flex">
+                    <Eye className="h-3 w-3" /> Read-only demo
+                  </Badge>
+                  <Button
+                    size="sm"
+                    className="gradient-brand text-white border-0 shadow-lg shadow-primary/25 gap-1.5"
+                    render={<Link href="/register" />}
+                  >
+                    Start free trial
+                  </Button>
+                </>
+              ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
@@ -333,8 +350,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              )}
             </div>
           </header>
+
+          {isGuest && (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-300 lg:px-6">
+              <Eye className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                You are exploring <strong>{org?.name ?? "a demo portfolio"}</strong> in
+                read-only mode. Nothing you do here is saved, and this is not real data.
+              </span>
+              <Link href="/register" className="font-medium underline underline-offset-2 hover:text-amber-200">
+                Start a free trial
+              </Link>
+            </div>
+          )}
 
           {/* Page Content */}
           <main className="flex-1 overflow-y-auto p-4 lg:p-6">

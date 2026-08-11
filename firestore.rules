@@ -61,6 +61,24 @@ service cloud.firestore {
       return hasProfile() && tenantId != null && callerTenantId() == tenantId;
     }
 
+    // A demo visitor. Anyone can become one by clicking "View Demo" on the
+    // marketing site, which mints a token for a single shared identity parked
+    // in the demo organization (see api/demo/session).
+    //
+    // Read-only is enforced by omission and by arithmetic: 'guest' is in none of
+    // the staff lists above, carries no tenantId or vendorId, and so satisfies no
+    // create, update or delete rule anywhere in this file. The only thing added
+    // for it is the ability to look — and only inside the one organization its
+    // profile names.
+    function isOrgGuest(orgId) {
+      return belongsToOrg(orgId) && getUserProfile().role == 'guest';
+    }
+
+    /** Anyone entitled to look at this organization's operational records. */
+    function canViewOrg(orgId) {
+      return isOrgStaff(orgId) || isOrgGuest(orgId);
+    }
+
     // Whether the organization is still paying for RentOS.
     //
     // Rules cannot count documents, so per-plan unit limits are enforced in the
@@ -114,8 +132,12 @@ service cloud.firestore {
                     && !exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId));
 
       // Everything else about a profile is editable; the privilege fields are not.
+      //
+      // Except for the demo guest, which is a single identity shared by every
+      // visitor: one of them renaming it would rename it for all the others.
       allow update: if isSignedIn()
                     && request.auth.uid == userId
+                    && resource.data.role != 'guest'
                     && request.resource.data.orgId == resource.data.orgId
                     && request.resource.data.role == resource.data.role
                     && request.resource.data.get('tenantId', '') == resource.data.get('tenantId', '')
@@ -165,6 +187,9 @@ service cloud.firestore {
     // them — issuing, accepting and revoking all go through API routes that
     // verify the caller first. See src/app/api/invites.
     match /invites/{inviteId} {
+      // Staff only, not canViewOrg: an invite's document id is the token that
+      // admits its holder to the organization. A read-only demo visitor being
+      // able to list them would be able to join for real.
       allow read: if isOrgStaff(resource.data.orgId);
       allow write: if false;
     }
@@ -175,7 +200,7 @@ service cloud.firestore {
     // Tenants have no business enumerating the portfolio. Public browsing of
     // available units happens through /listings, which is world-readable below.
     match /properties/{propertyId} {
-      allow read: if isOrgStaff(resource.data.orgId);
+      allow read: if canViewOrg(resource.data.orgId);
       allow create: if canProvision(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
@@ -185,7 +210,7 @@ service cloud.firestore {
     // Units (staff only)
     // ============================================
     match /units/{unitId} {
-      allow read: if isOrgStaff(resource.data.orgId);
+      allow read: if canViewOrg(resource.data.orgId);
       allow create: if canProvision(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
@@ -198,7 +223,7 @@ service cloud.firestore {
     // otherwise every tenant could read every other tenant's email, phone and
     // emergency contact.
     match /tenants/{tenantId} {
-      allow read: if isOrgStaff(resource.data.orgId) || isSelfTenant(tenantId);
+      allow read: if canViewOrg(resource.data.orgId) || isSelfTenant(tenantId);
       allow create: if isOrgStaff(request.resource.data.orgId);
       // A tenant may maintain their own contact details, but must not move
       // themselves between organizations.
@@ -213,7 +238,7 @@ service cloud.firestore {
     // ============================================
     // A tenant reads only leases they are named on.
     match /leases/{leaseId} {
-      allow read: if isOrgStaff(resource.data.orgId)
+      allow read: if canViewOrg(resource.data.orgId)
                   || (hasProfile() && callerTenantId() in resource.data.tenantIds);
       allow create: if canProvision(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
@@ -229,7 +254,7 @@ service cloud.firestore {
     // with any contents — the rules could check little more than "that org
     // exists". Staff still file applications taken over the phone.
     match /applications/{appId} {
-      allow read: if isOrgStaff(resource.data.orgId);
+      allow read: if canViewOrg(resource.data.orgId);
       allow create: if isOrgStaff(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
@@ -247,7 +272,7 @@ service cloud.firestore {
     // Staff file reports on behalf of callers; a tenant files their own, which
     // is what the tenantId check pins down.
     match /maintenance/{requestId} {
-      allow read: if isOrgStaff(resource.data.orgId)
+      allow read: if canViewOrg(resource.data.orgId)
                   || isSelfTenant(resource.data.get('tenantId', ''));
       allow create: if (isOrgStaff(request.resource.data.orgId)
                         || (belongsToOrg(request.resource.data.orgId)
@@ -266,7 +291,7 @@ service cloud.firestore {
     // Vendors (staff only)
     // ============================================
     match /vendors/{vendorId} {
-      allow read: if isOrgStaff(resource.data.orgId) || isAssignedVendor(vendorId);
+      allow read: if canViewOrg(resource.data.orgId) || isAssignedVendor(vendorId);
       allow create: if isOrgStaff(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
@@ -280,7 +305,7 @@ service cloud.firestore {
     // otherwise a tenant could insert a completed transaction and mark their own
     // rent paid. Tenants read only their own payment history.
     match /transactions/{txId} {
-      allow read: if isOrgStaff(resource.data.orgId)
+      allow read: if canViewOrg(resource.data.orgId)
                   || isSelfTenant(resource.data.get('tenantId', ''));
       allow create, update, delete: if false;
     }
@@ -301,7 +326,7 @@ service cloud.firestore {
     // Tenants create sublets for their own unit from /portal/sublet; managers
     // administer them from /sublets.
     match /sublets/{subletId} {
-      allow read: if isOrgStaff(resource.data.orgId)
+      allow read: if canViewOrg(resource.data.orgId)
                   || isSelfTenant(resource.data.get('tenantId', ''));
       allow create: if isOrgStaff(request.resource.data.orgId)
                     || (isSelfTenant(request.resource.data.get('tenantId', ''))
@@ -316,7 +341,7 @@ service cloud.firestore {
     // Org staff manage all work orders; a contractor reaches only the ones
     // assigned to their own vendor record.
     match /work_orders/{workOrderId} {
-      allow read: if isOrgStaff(resource.data.orgId)
+      allow read: if canViewOrg(resource.data.orgId)
                   || isAssignedVendor(resource.data.vendorId);
       allow create: if isOrgStaff(request.resource.data.orgId);
       // A contractor may report progress, but must not reassign the job to
@@ -337,7 +362,7 @@ service cloud.firestore {
     // withholding them from the person being charged would be indefensible.
     // Only staff may record findings.
     match /inspections/{inspectionId} {
-      allow read: if isOrgStaff(resource.data.orgId)
+      allow read: if canViewOrg(resource.data.orgId)
                   || isSelfTenant(resource.data.get('tenantId', ''));
       allow create: if isOrgStaff(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
@@ -350,14 +375,14 @@ service cloud.firestore {
     // Who holds which key, and when locks were last changed, is security
     // information about the whole building. Tenants get none of it.
     match /keys/{keyId} {
-      allow read: if isOrgStaff(resource.data.orgId);
+      allow read: if canViewOrg(resource.data.orgId);
       allow create: if isOrgStaff(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
 
     match /lock_changes/{changeId} {
-      allow read: if isOrgStaff(resource.data.orgId);
+      allow read: if canViewOrg(resource.data.orgId);
       allow create: if isOrgStaff(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       // A rekey history that can be edited away is not an audit trail.
@@ -370,7 +395,7 @@ service cloud.firestore {
     // Internal record-keeping, including complaint history about tenants.
     // Never readable by tenants.
     match /unit_notes/{noteId} {
-      allow read: if isOrgStaff(resource.data.orgId);
+      allow read: if canViewOrg(resource.data.orgId);
       allow create: if isOrgStaff(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
@@ -382,7 +407,7 @@ service cloud.firestore {
     // The org's operational schedule reveals when units are empty and when
     // people will be on site.
     match /calendar_events/{eventId} {
-      allow read: if isOrgStaff(resource.data.orgId);
+      allow read: if canViewOrg(resource.data.orgId);
       allow create: if isOrgStaff(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
@@ -399,7 +424,7 @@ service cloud.firestore {
       // they are about that org's own payments, so there is nothing to hide,
       // and a query scoped only by orgId would otherwise fail wholesale the
       // moment one tenant notification existed. A tenant reads only their own.
-      allow read: if isOrgStaff(resource.data.orgId)
+      allow read: if canViewOrg(resource.data.orgId)
                   || (resource.data.audience == 'tenant'
                       && isSelfTenant(resource.data.get('tenantId', '')));
 

@@ -95,8 +95,18 @@ export const PLAN_ORDER: PlanId[] = ["starter", "growth", "professional", "enter
 
 export const DEFAULT_PLAN: PlanId = "starter";
 
-/** How long a new organization may use RentOS before a card is required. */
-export const TRIAL_DAYS = 14;
+/**
+ * How long a new organization may use RentOS before a card is required.
+ *
+ * The marketing page promises three months, so this is three months. It was 14
+ * days while the hero said "Start Free — 3 Months", which meant the app would
+ * have cut people off ten weeks before the page said it would.
+ */
+export const TRIAL_DAYS = 90;
+
+/** The trial in the words the marketing page uses, derived so the two agree. */
+export const TRIAL_LABEL =
+  TRIAL_DAYS % 30 === 0 ? `${TRIAL_DAYS / 30}-Month` : `${TRIAL_DAYS}-Day`;
 
 export function isPlanId(value: unknown): value is PlanId {
   return typeof value === "string" && value in PLANS;

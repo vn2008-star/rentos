@@ -39,6 +39,8 @@ const PROFILES = {
   vendor2: { role: "contractor", orgId: ORG, vendorId: "vendor-2", email: "v2@example.com" },
   // Manager of an organisation that has stopped paying for RentOS.
   lapsed: { role: "manager", orgId: LAPSED_ORG, email: "lapsed@example.com" },
+  // The shared read-only identity behind "View Demo" on the marketing site.
+  guest: { role: "guest", orgId: ORG, email: "demo@rentos.app" },
 };
 
 const WORK_ORDER = {
@@ -652,6 +654,78 @@ describe("billing gate", () => {
   test("a cancelled org can still edit its own records", async () => {
     await assertSucceeds(
       updateDoc(doc(as("lapsed"), "units", "lapsed-unit"), { status: "maintenance" })
+    );
+  });
+});
+
+// ============================================================
+// The read-only demo visitor
+// ============================================================
+// Anyone on the internet can become this identity by clicking "View Demo".
+// Everything it may do has to be safe in the hands of a stranger.
+
+describe("demo guest", () => {
+  test("can read the demo organisation's portfolio", async () => {
+    await assertSucceeds(getDoc(doc(as("guest"), "properties", "prop-1")));
+    await assertSucceeds(getDoc(doc(as("guest"), "units", "unit-1")));
+    await assertSucceeds(getDoc(doc(as("guest"), "leases", "lease-1")));
+    await assertSucceeds(getDoc(doc(as("guest"), "transactions", "txn-1")));
+  });
+
+  test("can read the organisation record", async () => {
+    await assertSucceeds(getDoc(doc(as("guest"), "organizations", ORG)));
+  });
+
+  test("cannot read another organisation", async () => {
+    // The tour is confined to the org its profile names.
+    await assertFails(getDoc(doc(as("guest"), "units", "lapsed-unit")));
+  });
+
+  test("cannot read invitations", async () => {
+    // The document id is the token that admits its holder to the organisation:
+    // a visitor able to list them could join for real.
+    await assertFails(getDoc(doc(as("guest"), "invites", "invite-1")));
+  });
+
+  test("cannot read staff profiles", async () => {
+    await assertFails(getDoc(doc(as("guest"), "users", "manager")));
+  });
+
+  test("cannot create anything", async () => {
+    await assertFails(
+      setDoc(doc(as("guest"), "properties", "guest-prop"), { orgId: ORG, name: "Mine now" })
+    );
+    await assertFails(
+      setDoc(doc(as("guest"), "units", "guest-unit"), { orgId: ORG, unitNumber: "999" })
+    );
+    await assertFails(
+      setDoc(doc(as("guest"), "maintenance", "guest-maint"), {
+        orgId: ORG, status: "submitted", title: "x", description: "",
+        unitId: "unit-1", propertyId: "prop-1",
+      })
+    );
+  });
+
+  test("cannot edit or delete existing records", async () => {
+    await assertFails(updateDoc(doc(as("guest"), "units", "unit-1"), { rent: 1 }));
+    await assertFails(updateDoc(doc(as("guest"), "tenants", "tenant-1"), { phone: "x" }));
+    await assertFails(deleteDoc(doc(as("guest"), "properties", "prop-1")));
+  });
+
+  test("cannot touch the organisation's settings or billing", async () => {
+    await assertFails(updateDoc(doc(as("guest"), "organizations", ORG), { name: "Demo Co" }));
+  });
+
+  test("cannot rename the shared demo identity", async () => {
+    // One visitor editing it would edit it for every other visitor.
+    await assertFails(
+      updateDoc(doc(as("guest"), "users", "guest"), { displayName: "Anything" })
+    );
+  });
+
+  test("cannot mark notifications as read", async () => {
+    await assertFails(
+      updateDoc(doc(as("guest"), "notifications", "notif-mgr"), { read: true })
     );
   });
 });

@@ -1,6 +1,7 @@
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  signInAnonymously,
   signInWithPopup,
   GoogleAuthProvider,
   signOut,
@@ -51,6 +52,33 @@ export async function loginWithGoogle() {
   const cred = await signInWithPopup(auth, googleProvider);
   const profile = await getOrCreateUserProfile(cred.user);
   return profile;
+}
+
+/**
+ * Signs in as a read-only demo visitor.
+ *
+ * An anonymous session first, then the server grants it guest access to the
+ * demo organization — no password ships in the browser bundle, and no shared
+ * account exists for anyone to find. The identity is throwaway: Firebase
+ * expires unused anonymous accounts on its own.
+ */
+export async function loginAsDemoVisitor(): Promise<UserProfile> {
+  const cred = await signInAnonymously(auth);
+
+  const res = await fetch("/api/demo/session", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await cred.user.getIdToken()}` },
+  });
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    // Leaving a half-made anonymous session signed in would strand the visitor
+    // in an app that can read nothing.
+    await signOut(auth).catch(() => {});
+    throw new Error(data.error || "The demo could not be started.");
+  }
+
+  return getOrCreateUserProfile(cred.user);
 }
 
 export async function logout() {
@@ -121,6 +149,21 @@ async function getOrCreateUserProfile(user: User): Promise<UserProfile> {
     console.warn("Firestore read failed, creating local profile", err);
   }
 
+  // An anonymous session is a demo visitor, and its profile is the server's to
+  // write (api/demo/session). Creating one here would race that write and, being
+  // a plain setDoc rather than a merge, could clobber the guest role with
+  // "manager" — handing a stranger write access to the demo organization.
+  if (user.isAnonymous) {
+    return {
+      id: user.uid,
+      email: "",
+      displayName: "Demo Visitor",
+      role: "guest",
+      orgId: "",
+      createdAt: new Date().toISOString(),
+    };
+  }
+
   // Profile doesn't exist, create it
   return createUserProfile(user, user.displayName || "User", "manager");
 }
@@ -169,22 +212,26 @@ export function onAuthChange(callback: (profile: UserProfile | null) => void) {
         // A tenant a manager entered by hand can just sign up: if their address
         // matches a Tenant record, the server links the two. Only attempted
         // when the profile is not already linked, so this costs one request
-        // once rather than on every sign-in.
-        if (!profile.tenantId && !profile.vendorId) {
+        // once rather than on every sign-in. The demo visitor is skipped —
+        // it is not a person, and it has no tenancy to claim.
+        if (!profile.tenantId && !profile.vendorId && profile.role !== "guest") {
           const linked = await claimTenancy(user);
           if (linked) profile = await getOrCreateUserProfile(user);
         }
 
         callback(profile);
       } catch {
-        // Fallback profile from Firebase Auth only
+        // Fallback profile from Firebase Auth only. An anonymous session gets
+        // the read-only role rather than "manager": the fallback runs when
+        // Firestore could not be reached, and guessing upwards there would give
+        // a demo visitor a manager's UI over a portfolio they cannot write to.
         callback({
           id: user.uid,
           email: user.email || "",
-          displayName: user.displayName || "User",
+          displayName: user.isAnonymous ? "Demo Visitor" : user.displayName || "User",
           photoURL: user.photoURL || undefined,
-          role: "manager",
-          orgId: `org-${user.uid.slice(0, 8)}`,
+          role: user.isAnonymous ? "guest" : "manager",
+          orgId: user.isAnonymous ? "" : `org-${user.uid.slice(0, 8)}`,
           createdAt: new Date().toISOString(),
         });
       }

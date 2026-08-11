@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import { RentosMark } from "@/components/rentos-mark";
 import { Button } from "@/components/ui/button";
-import { PLANS, PLAN_ORDER, TRIAL_DAYS, formatPlanPrice } from "@/lib/plans";
+import { PLANS, PLAN_ORDER, TRIAL_LABEL, formatPlanPrice } from "@/lib/plans";
+import { loginAsDemoVisitor } from "@/lib/auth";
 
 const features = [
   {
@@ -54,13 +55,6 @@ const features = [
   },
 ];
 
-const stats = [
-  { label: "Properties Managed", value: "10K+", icon: Building2 },
-  { label: "Rent Collected", value: "$2.4B+", icon: CreditCard },
-  { label: "Maintenance Resolved", value: "250K+", icon: Wrench },
-  { label: "Happy Managers", value: "5,000+", icon: Users },
-];
-
 const testimonials = [
   { name: "Sarah Chen", role: "Property Manager, 120 units", text: "RentOS cut my maintenance response time by 60%. The contractor portal alone is worth it.", rating: 5 },
   { name: "Marcus Rivera", role: "Independent Landlord", text: "Finally a platform that doesn't feel like it was built in 2005. Beautiful, fast, and actually useful.", rating: 5 },
@@ -77,7 +71,7 @@ const pricingPlans = PLAN_ORDER.map((id) => {
     period: plan.price === null ? "" : "/mo",
     units: plan.blurb,
     features: plan.features,
-    cta: plan.contactSales ? "Contact Sales" : `Start ${TRIAL_DAYS}-Day Trial`,
+    cta: plan.contactSales ? "Contact Sales" : `Start ${TRIAL_LABEL} Trial`,
     popular: Boolean(plan.popular),
   };
 });
@@ -85,7 +79,27 @@ const pricingPlans = PLAN_ORDER.map((id) => {
 export default function LandingPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuthStore();
+  const setUser = useAuthStore((s) => s.setUser);
   const [scrollY, setScrollY] = useState(0);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoError, setDemoError] = useState("");
+
+  /**
+   * Signs the visitor in as the read-only demo guest and drops them on the
+   * dashboard. No account, no password, nothing they can break.
+   */
+  const handleViewDemo = async () => {
+    setDemoLoading(true);
+    setDemoError("");
+    try {
+      const profile = await loginAsDemoVisitor();
+      setUser(profile);
+      router.push("/dashboard");
+    } catch (err: any) {
+      setDemoError(err?.message || "The demo could not be started.");
+      setDemoLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
@@ -178,19 +192,29 @@ export default function LandingPage() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/register">
               <Button size="lg" className="gradient-brand text-white border-0 h-12 px-8 text-base shadow-lg shadow-primary/25 hover:shadow-primary/40 transition-all hover:scale-[1.02]">
-                Start Free — 3 Months <ArrowRight className="h-4 w-4 ml-2" />
+                Start Free — {TRIAL_LABEL.replace("-", " ")}s <ArrowRight className="h-4 w-4 ml-2" />
               </Button>
             </Link>
-            <Link href="/login">
-              <Button size="lg" variant="outline" className="h-12 px-8 text-base border-border/50 hover:bg-accent/50">
-                View Demo
-              </Button>
-            </Link>
+            {/* Actually a demo. This linked to /login, asking a prospect who
+                had never signed up for credentials they could not have had. */}
+            <Button
+              size="lg"
+              variant="outline"
+              className="h-12 px-8 text-base border-border/50 hover:bg-accent/50 gap-2"
+              disabled={demoLoading}
+              onClick={handleViewDemo}
+            >
+              {demoLoading ? <><Loader2 className="h-4 w-4 animate-spin" /> Opening demo…</> : "View Demo"}
+            </Button>
           </div>
+
+          {demoError && (
+            <p className="mt-3 text-xs text-destructive">{demoError}</p>
+          )}
 
           <p className="text-xs text-muted-foreground/60 mt-4 flex items-center justify-center gap-4">
             <span className="flex items-center gap-1"><Check className="h-3 w-3 text-emerald-500" /> No credit card required</span>
-            <span className="flex items-center gap-1"><Check className="h-3 w-3 text-emerald-500" /> 3-month free trial</span>
+            <span className="flex items-center gap-1"><Check className="h-3 w-3 text-emerald-500" /> {TRIAL_LABEL.toLowerCase()} free trial</span>
             <span className="flex items-center gap-1"><Check className="h-3 w-3 text-emerald-500" /> Cancel anytime</span>
           </p>
         </div>
@@ -243,18 +267,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ─── STATS ─── */}
-      <section className="py-16 px-6 border-y border-border/30">
-        <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6">
-          {stats.map((s) => (
-            <div key={s.label} className="text-center">
-              <s.icon className="h-5 w-5 text-primary mx-auto mb-2" />
-              <p className="text-3xl font-bold font-heading">{s.value}</p>
-              <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* The stats band that stood here claimed 10K+ properties managed, $2.4B+
+          rent collected and 5,000+ happy managers. Placeholder copy is harmless
+          on a mockup and a false statement of fact on a page selling to real
+          landlords. It comes back when there are real numbers to put in it. */}
 
       {/* ─── FEATURES ─── */}
       <section id="features" className="py-24 px-6">

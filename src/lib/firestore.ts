@@ -5,6 +5,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "./firebase";
+import { useAuthStore } from "./store";
 
 // ============================================
 // Generic Firestore CRUD
@@ -14,11 +15,31 @@ import { db, storage } from "./firebase";
  * All queries are scoped by orgId to enforce multi-tenancy.
  */
 
+/**
+ * Stops a read-only demo visitor before the write leaves the browser.
+ *
+ * The security rules already refuse these — 'guest' satisfies no write rule
+ * anywhere — but "Missing or insufficient permissions" is a terrible thing to
+ * show someone who is evaluating the product. Failing here means they get a
+ * sentence that explains itself, and it covers every write in the app rather
+ * than every button being remembered individually.
+ *
+ * The store is read imperatively because this module is not a React hook.
+ */
+function assertWritable(): void {
+  if (useAuthStore.getState().user?.role === "guest") {
+    throw new Error(
+      "This is a read-only demo — start a free trial to make changes."
+    );
+  }
+}
+
 export async function createDocument<T extends DocumentData>(
   collectionName: string,
   data: T,
   customId?: string
 ): Promise<string> {
+  assertWritable();
   const docData = { ...data, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
   if (customId) {
     await updateDoc(doc(db, collectionName, customId), docData).catch(async () => {
@@ -61,6 +82,7 @@ export async function updateDocument(
   docId: string,
   data: Partial<DocumentData>
 ): Promise<void> {
+  assertWritable();
   await updateDoc(doc(db, collectionName, docId), {
     ...data,
     updatedAt: serverTimestamp(),
@@ -81,6 +103,7 @@ export async function updateDocumentFields(
   docId: string,
   data: Partial<DocumentData>
 ): Promise<void> {
+  assertWritable();
   await updateDoc(doc(db, collectionName, docId), data);
 }
 
@@ -88,6 +111,7 @@ export async function deleteDocument(
   collectionName: string,
   docId: string
 ): Promise<void> {
+  assertWritable();
   await deleteDoc(doc(db, collectionName, docId));
 }
 
@@ -127,6 +151,7 @@ export async function uploadFile(
   file: File,
   onProgress?: (pct: number) => void
 ): Promise<string> {
+  assertWritable();
   const storageRef = ref(storage, path);
   const snapshot = await uploadBytes(storageRef, file);
   return getDownloadURL(snapshot.ref);
