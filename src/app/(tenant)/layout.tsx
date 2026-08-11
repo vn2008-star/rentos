@@ -7,6 +7,7 @@ import { Home, CreditCard, Wrench, FileText, LogOut, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/store";
 import { AuthGuard } from "@/components/auth-guard";
+import { SupportBanner } from "@/components/support-banner";
 
 const navItems = [
   { label: "Dashboard", href: "/portal", icon: Home },
@@ -36,6 +37,11 @@ function TenantShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* An operator looking through a resident's eyes lands here. Mistaking
+          someone else's tenancy for your own would do the most damage in this
+          shell, so the banner belongs here more than anywhere. */}
+      <SupportBanner />
+
       {/* Top Bar */}
       <header className="sticky top-0 z-50 h-14 border-b border-border/50 bg-card/80 backdrop-blur-xl flex items-center px-4 sm:px-6 justify-between">
         <div className="flex items-center gap-3">

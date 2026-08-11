@@ -134,6 +134,22 @@ export interface SupportSession {
   reason: string;
   /** False means look, do not touch. */
   writeEnabled: boolean;
+  /**
+   * Whose eyes to look through.
+   *
+   * Unset means the operator sees what the customer's staff see. Set, and the
+   * app and the security rules both narrow to exactly one tenant or contractor
+   * — which is the only way to answer "my portal says I have no lease" without
+   * guessing, because it reproduces what they cannot see as well as what they
+   * can.
+   *
+   * Always read-only: writing as a customer's tenant would put records in that
+   * person's name that they did not make.
+   */
+  viewAsRole?: "tenant" | "contractor" | null;
+  /** The Tenant or Vendor record being looked through. */
+  viewAsSubjectId?: string;
+  viewAsSubjectName?: string;
   startedAt: string;
   /** Firestore Timestamp on the wire so the rules can compare it to request.time. */
   expiresAt: string;

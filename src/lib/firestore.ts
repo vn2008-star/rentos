@@ -27,9 +27,21 @@ import { useAuthStore } from "./store";
  * The store is read imperatively because this module is not a React hook.
  */
 function assertWritable(): void {
-  if (useAuthStore.getState().user?.role === "guest") {
+  const state = useAuthStore.getState();
+
+  if (state.user?.role === "guest") {
     throw new Error(
       "This is a read-only demo — start a free trial to make changes."
+    );
+  }
+
+  // An operator looking through a tenant's or contractor's eyes. The rules
+  // refuse these too; stopping here turns a permission error into an
+  // explanation of why the app is behaving like a customer rather than staff.
+  if (state.supportSession?.viewAsRole) {
+    throw new Error(
+      `You are viewing as ${state.supportSession.viewAsSubjectName ?? "a customer"} — ` +
+        "exit the support session to make changes."
     );
   }
 }

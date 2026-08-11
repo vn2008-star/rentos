@@ -14,6 +14,9 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { authedJson } from "@/lib/api-client";
@@ -54,6 +57,19 @@ const STATUS_STYLE: Record<string, string> = {
 
 const DURATIONS = [15, 30, 60, 120];
 
+type ViewAsMode = "staff" | "tenant" | "contractor";
+
+interface OrgPeople {
+  tenants: { id: string; name: string; hasLogin: boolean }[];
+  vendors: { id: string; name: string; hasLogin: boolean }[];
+}
+
+const VIEW_AS_MODES: { value: ViewAsMode; label: string; hint: string }[] = [
+  { value: "staff", label: "Their staff", hint: "The customer's own dashboard" },
+  { value: "tenant", label: "A tenant", hint: "What one resident sees in the portal" },
+  { value: "contractor", label: "A contractor", hint: "What one vendor sees of their jobs" },
+];
+
 function AdminConsole() {
   const router = useRouter();
   // homeOrgId, not user.orgId: while a support session is open the latter points
@@ -72,20 +88,54 @@ function AdminConsole() {
   const [writeEnabled, setWriteEnabled] = useState(false);
   const [opening, setOpening] = useState(false);
 
+  // Whose eyes to look through. "staff" is the customer's own dashboard.
+  const [viewAs, setViewAs] = useState<ViewAsMode>("staff");
+  const [subjectId, setSubjectId] = useState("");
+  const [people, setPeople] = useState<OrgPeople | null>(null);
+
+  // Loaded only once an organization is chosen — the list is that customer's
+  // roster, so it is fetched on demand rather than alongside every org.
+  useEffect(() => {
+    if (!target) { setPeople(null); return; }
+    let cancelled = false;
+    authedJson<OrgPeople>(`/api/admin/org-people?orgId=${encodeURIComponent(target.id)}`)
+      .then((r) => { if (!cancelled) setPeople(r); })
+      .catch(() => { if (!cancelled) setPeople({ tenants: [], vendors: [] }); });
+    return () => { cancelled = true; };
+  }, [target]);
+
+  const subjects =
+    viewAs === "tenant" ? people?.tenants ?? []
+    : viewAs === "contractor" ? people?.vendors ?? []
+    : [];
+
   const openSession = async () => {
     if (!target) return;
     setOpening(true);
     try {
-      await start({ orgId: target.id, reason: reason.trim(), minutes, writeEnabled });
+      await start({
+        orgId: target.id,
+        reason: reason.trim(),
+        minutes,
+        writeEnabled,
+        viewAsRole: viewAs === "staff" ? null : viewAs,
+        viewAsSubjectId: viewAs === "staff" ? undefined : subjectId,
+      });
       toast.success(`Viewing ${target.name}.`);
       setTarget(null);
-      router.push("/dashboard");
+      // Straight to the portal the impersonated person actually uses.
+      router.push(
+        viewAs === "tenant" ? "/portal" : viewAs === "contractor" ? "/dashboard" : "/dashboard"
+      );
     } catch (err: any) {
       toast.error(err?.message || "Could not open the support session.");
     } finally {
       setOpening(false);
     }
   };
+
+  const canOpen =
+    reason.trim().length >= 4 && (viewAs === "staff" || subjectId !== "");
 
   useEffect(() => {
     authedJson<{ orgs: AdminOrg[]; truncated: boolean }>("/api/admin/orgs")
@@ -254,6 +304,58 @@ function AdminConsole() {
             </div>
 
             <div className="space-y-2">
+              <Label>View as</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {VIEW_AS_MODES.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    onClick={() => { setViewAs(mode.value); setSubjectId(""); }}
+                    className={`rounded-lg border p-2 text-left text-xs transition-colors ${
+                      viewAs === mode.value
+                        ? "border-primary/50 bg-primary/10"
+                        : "border-border/50 hover:border-border"
+                    }`}
+                  >
+                    <span className="block font-medium">{mode.label}</span>
+                    <span className="block text-[10px] text-muted-foreground">{mode.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {viewAs !== "staff" && (
+              <div className="space-y-2">
+                <Label>Which {viewAs === "tenant" ? "tenant" : "contractor"}?</Label>
+                {people === null ? (
+                  <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+                  </p>
+                ) : subjects.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    This organization has no {viewAs === "tenant" ? "tenants" : "contractors"} on record.
+                  </p>
+                ) : (
+                  <Select value={subjectId} onValueChange={(v) => v != null && setSubjectId(v)}>
+                    <SelectTrigger><SelectValue placeholder="Choose a person" /></SelectTrigger>
+                    <SelectContent>
+                      {subjects.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                          {viewAs === "tenant" && !p.hasLogin ? " — no portal login" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  You will see exactly what they see, including what they cannot.
+                  Always read-only.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
               <Label>Duration</Label>
               <div className="flex gap-2">
                 {DURATIONS.map((m) => (
@@ -270,22 +372,27 @@ function AdminConsole() {
               </div>
             </div>
 
-            <label className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-              <input
-                type="checkbox"
-                checked={writeEnabled}
-                onChange={(e) => setWriteEnabled(e.target.checked)}
-                className="mt-0.5 h-4 w-4 accent-amber-500"
-                disabled={opening}
-              />
-              <span>
-                <span className="font-medium text-amber-300">Allow editing</span>
-                <span className="block text-xs text-muted-foreground">
-                  Only tick this if you are fixing something for them. Changes are
-                  made under your account, not theirs.
+            {/* Editing exists only in the staff view. A record written while
+                looking through somebody's eyes would carry their name for
+                something they did not do. */}
+            {viewAs === "staff" && (
+              <label className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={writeEnabled}
+                  onChange={(e) => setWriteEnabled(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-amber-500"
+                  disabled={opening}
+                />
+                <span>
+                  <span className="font-medium text-amber-300">Allow editing</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Only tick this if you are fixing something for them. Changes are
+                    made under your account, not theirs.
+                  </span>
                 </span>
-              </span>
-            </label>
+              </label>
+            )}
           </div>
 
           <DialogFooter>
@@ -294,7 +401,7 @@ function AdminConsole() {
             </Button>
             <Button
               className="gap-2 gradient-brand text-white border-0"
-              disabled={opening || reason.trim().length < 4}
+              disabled={opening || !canOpen}
               onClick={openSession}
             >
               {opening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}

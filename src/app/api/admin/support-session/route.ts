@@ -58,13 +58,46 @@ export async function POST(req: NextRequest) {
     MAX_MINUTES,
     Math.max(5, Number(body.minutes) || DEFAULT_MINUTES)
   );
-  const writeEnabled = body.writeEnabled === true;
 
   const db = await getAdminDb();
   const orgSnap = await db.collection(Collections.ORGANIZATIONS).doc(orgId).get();
   if (!orgSnap.exists) return jsonError("Organization not found", 404);
 
   const org = orgSnap.data() as Organization;
+
+  // Optionally look through one person's eyes rather than the customer's staff.
+  const viewAsRole =
+    body.viewAsRole === "tenant" || body.viewAsRole === "contractor"
+      ? body.viewAsRole
+      : null;
+  const subjectId = String(body.viewAsSubjectId ?? "").trim();
+  let subjectName = "";
+
+  if (viewAsRole) {
+    if (!subjectId) {
+      return jsonError(`Choose which ${viewAsRole} to view as`, 400);
+    }
+    const collection =
+      viewAsRole === "tenant" ? Collections.TENANTS : Collections.VENDORS;
+    const subject = await db.collection(collection).doc(subjectId).get();
+
+    // The subject has to belong to the organization the session is for, or a
+    // session opened against one customer would look through a person in another.
+    if (!subject.exists || subject.data()?.orgId !== orgId) {
+      return jsonError(`That ${viewAsRole} is not in this organization`, 400);
+    }
+
+    const d = subject.data() ?? {};
+    subjectName =
+      viewAsRole === "tenant"
+        ? `${d.firstName ?? ""} ${d.lastName ?? ""}`.trim() || d.email || subjectId
+        : d.name || d.company || subjectId;
+  }
+
+  // Impersonation is always read-only. A record written while looking through
+  // somebody's eyes would carry their name for something they did not do; an
+  // operator fixing something does it in the staff view, under their own uid.
+  const writeEnabled = viewAsRole ? false : body.writeEnabled === true;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + minutes * 60 * 1000);
 
@@ -75,6 +108,9 @@ export async function POST(req: NextRequest) {
     orgName: org.name ?? orgId,
     reason: reason.slice(0, 300),
     writeEnabled,
+    viewAsRole,
+    viewAsSubjectId: viewAsRole ? subjectId : null,
+    viewAsSubjectName: viewAsRole ? subjectName : null,
     startedAt: now.toISOString(),
     // A real Timestamp, because the rules compare it against request.time.
     // An ISO string here would make every expiry check silently false.
@@ -93,7 +129,9 @@ export async function POST(req: NextRequest) {
   });
 
   console.log(
-    `[support] ${caller.email} opened ${writeEnabled ? "read-write" : "read-only"} access to ${orgId} for ${minutes}m — ${reason}`
+    `[support] ${caller.email} opened ${writeEnabled ? "read-write" : "read-only"} access to ${orgId}` +
+      (viewAsRole ? ` as ${viewAsRole} ${subjectId}` : "") +
+      ` for ${minutes}m — ${reason}`
   );
 
   return NextResponse.json({

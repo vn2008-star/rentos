@@ -97,15 +97,86 @@ service cloud.firestore {
              && request.time < supportSession().expiresAt;
     }
 
-    /** A support session that was opened with editing allowed. */
-    function supportCanWrite(orgId) {
+    // Whose eyes the operator is looking through: '' for the customer's staff,
+    // or 'tenant' / 'contractor' to be narrowed to one person.
+    function supportViewAs(orgId) {
       return hasSupportSession(orgId)
+             ? supportSession().get('viewAsRole', '')
+             : '';
+    }
+
+    /** A support session looking at the org the way its staff do. */
+    function supportStaffView(orgId) {
+      return hasSupportSession(orgId) && supportViewAs(orgId) == '';
+    }
+
+    /**
+     * A support session opened with editing allowed.
+     *
+     * Never while impersonating a tenant or contractor: a record written then
+     * would carry that person's name for something they did not do. An operator
+     * who needs to fix something does it in the staff view, under their own uid.
+     */
+    function supportCanWrite(orgId) {
+      return supportStaffView(orgId)
              && supportSession().get('writeEnabled', false) == true;
+    }
+
+    // The Tenant or Vendor record an operator is looking through, if any.
+    //
+    // exists() is checked before supportSession() is read, and && short-circuits,
+    // so a caller with no session never dereferences a missing document — which
+    // would error and deny rather than simply returning "not impersonating".
+    function impersonating(role) {
+      return hasProfile()
+             && getUserProfile().role == 'super_admin'
+             && exists(/databases/$(database)/documents/support_sessions/$(request.auth.uid))
+             && supportSession().get('viewAsRole', '') == role
+             && request.time < supportSession().expiresAt;
+    }
+
+    function supportTenantId() {
+      return impersonating('tenant')
+             ? supportSession().get('viewAsSubjectId', '')
+             : '';
+    }
+
+    function supportVendorId() {
+      return impersonating('contractor')
+             ? supportSession().get('viewAsSubjectId', '')
+             : '';
+    }
+
+    // ----- Reading as somebody else -----
+    //
+    // The impersonated identity is deliberately confined to `allow read` rules
+    // and appears in no write rule anywhere.
+    //
+    // The first version folded it into callerTenantId(), which every rule uses —
+    // and so an operator looking through a tenant's eyes inherited that tenant's
+    // right to edit their own contact details. Impersonation must never be able
+    // to write: a record changed then carries the customer's name for something
+    // they did not do. Keeping it on these read-only helpers is what makes that
+    // true by construction rather than by discipline.
+    function readerTenantId() {
+      return callerTenantId() != '' ? callerTenantId() : supportTenantId();
+    }
+
+    function readerVendorId() {
+      return callerVendorId() != '' ? callerVendorId() : supportVendorId();
+    }
+
+    function viewsAsTenant(tenantId) {
+      return hasProfile() && tenantId != null && readerTenantId() == tenantId;
+    }
+
+    function viewsAsVendor(vendorId) {
+      return hasProfile() && vendorId != null && readerVendorId() == vendorId;
     }
 
     /** Anyone entitled to look at this organization's operational records. */
     function canViewOrg(orgId) {
-      return isOrgStaff(orgId) || isOrgGuest(orgId) || hasSupportSession(orgId);
+      return isOrgStaff(orgId) || isOrgGuest(orgId) || supportStaffView(orgId);
     }
 
     /** Anyone entitled to change them. */
@@ -278,7 +349,7 @@ service cloud.firestore {
     // otherwise every tenant could read every other tenant's email, phone and
     // emergency contact.
     match /tenants/{tenantId} {
-      allow read: if canViewOrg(resource.data.orgId) || isSelfTenant(tenantId);
+      allow read: if canViewOrg(resource.data.orgId) || viewsAsTenant(tenantId);
       allow create: if canManageOrg(request.resource.data.orgId);
       // A tenant may maintain their own contact details, but must not move
       // themselves between organizations.
@@ -294,7 +365,7 @@ service cloud.firestore {
     // A tenant reads only leases they are named on.
     match /leases/{leaseId} {
       allow read: if canViewOrg(resource.data.orgId)
-                  || (hasProfile() && callerTenantId() in resource.data.tenantIds);
+                  || (hasProfile() && readerTenantId() in resource.data.tenantIds);
       allow create: if canProvision(request.resource.data.orgId);
       allow update: if canManageOrg(resource.data.orgId);
       allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
@@ -328,7 +399,7 @@ service cloud.firestore {
     // is what the tenantId check pins down.
     match /maintenance/{requestId} {
       allow read: if canViewOrg(resource.data.orgId)
-                  || isSelfTenant(resource.data.get('tenantId', ''));
+                  || viewsAsTenant(resource.data.get('tenantId', ''));
       allow create: if (canManageOrg(request.resource.data.orgId)
                         || (belongsToOrg(request.resource.data.orgId)
                             && isSelfTenant(request.resource.data.get('tenantId', ''))))
@@ -346,7 +417,7 @@ service cloud.firestore {
     // Vendors (staff only)
     // ============================================
     match /vendors/{vendorId} {
-      allow read: if canViewOrg(resource.data.orgId) || isAssignedVendor(vendorId);
+      allow read: if canViewOrg(resource.data.orgId) || viewsAsVendor(vendorId);
       allow create: if canManageOrg(request.resource.data.orgId);
       allow update: if canManageOrg(resource.data.orgId);
       allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
@@ -361,7 +432,7 @@ service cloud.firestore {
     // rent paid. Tenants read only their own payment history.
     match /transactions/{txId} {
       allow read: if canViewOrg(resource.data.orgId)
-                  || isSelfTenant(resource.data.get('tenantId', ''));
+                  || viewsAsTenant(resource.data.get('tenantId', ''));
       allow create, update, delete: if false;
     }
 
@@ -382,7 +453,7 @@ service cloud.firestore {
     // administer them from /sublets.
     match /sublets/{subletId} {
       allow read: if canViewOrg(resource.data.orgId)
-                  || isSelfTenant(resource.data.get('tenantId', ''));
+                  || viewsAsTenant(resource.data.get('tenantId', ''));
       allow create: if canManageOrg(request.resource.data.orgId)
                     || (isSelfTenant(request.resource.data.get('tenantId', ''))
                         && belongsToOrg(request.resource.data.orgId));
@@ -397,7 +468,7 @@ service cloud.firestore {
     // assigned to their own vendor record.
     match /work_orders/{workOrderId} {
       allow read: if canViewOrg(resource.data.orgId)
-                  || isAssignedVendor(resource.data.vendorId);
+                  || viewsAsVendor(resource.data.vendorId);
       allow create: if canManageOrg(request.resource.data.orgId);
       // A contractor may report progress, but must not reassign the job to
       // themselves, move it between orgs, or rewrite what it costs.
@@ -418,7 +489,7 @@ service cloud.firestore {
     // Only staff may record findings.
     match /inspections/{inspectionId} {
       allow read: if canViewOrg(resource.data.orgId)
-                  || isSelfTenant(resource.data.get('tenantId', ''));
+                  || viewsAsTenant(resource.data.get('tenantId', ''));
       allow create: if canManageOrg(request.resource.data.orgId);
       allow update: if canManageOrg(resource.data.orgId);
       allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
@@ -481,7 +552,7 @@ service cloud.firestore {
       // moment one tenant notification existed. A tenant reads only their own.
       allow read: if canViewOrg(resource.data.orgId)
                   || (resource.data.audience == 'tenant'
-                      && isSelfTenant(resource.data.get('tenantId', '')));
+                      && viewsAsTenant(resource.data.get('tenantId', '')));
 
       allow create: if false;
 

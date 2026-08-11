@@ -828,3 +828,65 @@ describe("support sessions", () => {
     await assertFails(getDoc(doc(as("manager"), "units", "lapsed-unit")));
   });
 });
+
+// ============================================================
+// Support access — looking through one person's eyes
+// ============================================================
+// Impersonation has to reproduce what a tenant CANNOT see as well as what they
+// can, or it cannot answer "my portal says I have no lease".
+
+describe("support role impersonation", () => {
+  before(async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      // operator looks through tenant-1's eyes, inside ORG.
+      await setDoc(doc(db, "support_sessions", "operator"), {
+        adminUid: "operator", adminEmail: "ops@rentos.app",
+        orgId: ORG, orgName: "Davis Housing Services",
+        reason: "Ticket 500 — portal shows no lease",
+        writeEnabled: false,
+        viewAsRole: "tenant", viewAsSubjectId: "tenant-1",
+        viewAsSubjectName: "Sarah Chen",
+        startedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 3600_000),
+      });
+    });
+  });
+
+  test("sees what that tenant sees", async () => {
+    await assertSucceeds(getDoc(doc(as("operator"), "leases", "lease-1")));
+    await assertSucceeds(getDoc(doc(as("operator"), "transactions", "txn-1")));
+    await assertSucceeds(getDoc(doc(as("operator"), "tenants", "tenant-1")));
+  });
+
+  test("does not see what that tenant cannot", async () => {
+    // The whole point: a staff-level view would show these and hide the bug.
+    await assertFails(getDoc(doc(as("operator"), "tenants", "tenant-2")));
+    await assertFails(getDoc(doc(as("operator"), "unit_notes", "note-1")));
+    await assertFails(getDoc(doc(as("operator"), "keys", "key-1")));
+    await assertFails(getDoc(doc(as("operator"), "properties", "prop-1")));
+  });
+
+  test("cannot write, even though the org is theirs to support", async () => {
+    // A record written here would carry the tenant's name for something they
+    // did not do, so writeEnabled is refused server-side and ignored here.
+    await assertFails(
+      updateDoc(doc(as("operator"), "tenants", "tenant-1"), { phone: "(000) 000-0000" })
+    );
+    await assertFails(
+      setDoc(doc(as("operator"), "maintenance", "as-tenant"), {
+        orgId: ORG, status: "submitted", title: "Filed by an operator",
+        description: "", unitId: "unit-1", propertyId: "prop-1", tenantId: "tenant-1",
+      })
+    );
+  });
+
+  test("an impersonated session is still confined to its own organisation", async () => {
+    await assertFails(getDoc(doc(as("operator"), "units", "lapsed-unit")));
+  });
+
+  test("impersonation does not leak to other operators", async () => {
+    // operator2's session is expired; it must not inherit operator's subject.
+    await assertFails(getDoc(doc(as("operator2"), "leases", "lease-1")));
+  });
+});

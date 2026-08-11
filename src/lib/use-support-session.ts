@@ -60,6 +60,9 @@ export function useSupportSessionWatcher(): void {
           orgName: data.orgName,
           reason: data.reason,
           writeEnabled: Boolean(data.writeEnabled),
+          viewAsRole: data.viewAsRole ?? null,
+          viewAsSubjectId: data.viewAsSubjectId ?? undefined,
+          viewAsSubjectName: data.viewAsSubjectName ?? undefined,
           startedAt: data.startedAt,
           expiresAt: expiresAt.toISOString(),
         });
@@ -96,6 +99,8 @@ export function useSupportSession() {
       reason: string;
       minutes: number;
       writeEnabled: boolean;
+      viewAsRole?: "tenant" | "contractor" | null;
+      viewAsSubjectId?: string;
     }) => {
       const { session: created } = await authedJson<{ session: SupportSession }>(
         "/api/admin/support-session",

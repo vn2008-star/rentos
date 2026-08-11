@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SupportSession, UserProfile } from "./types";
+import type { SupportSession, UserProfile, UserRole } from "./types";
 import { onAuthChange, logout as firebaseLogout } from "./auth";
 import {
   clearDemoSession, getDemoUser, isDemoAvailable,
@@ -26,12 +26,52 @@ interface AuthState {
    */
   supportSession: SupportSession | null;
   homeOrgId: string | null;
+  /** The operator's real role, kept so impersonation can be undone exactly. */
+  homeRole: UserRole | null;
   setSupportSession: (session: SupportSession | null) => void;
   setUser: (user: UserProfile | null) => void;
   setLoading: (loading: boolean) => void;
   loginAsDemo: (persona: DemoPersona) => UserProfile;
   logout: () => Promise<void>;
   initialize: () => () => void;
+}
+
+/**
+ * Points a profile at whatever the support session says to look at.
+ *
+ * With no session, the operator's own profile passes through untouched. With
+ * one, the org is swapped — and if a person is being looked through, so are the
+ * role and the tenantId/vendorId, which is what makes the app render the tenant
+ * or contractor portal rather than the staff dashboard.
+ *
+ * Presentation only. What may actually be read is decided by firestore.rules
+ * against the session document, so faking this in devtools shows an empty
+ * portal, not somebody's lease.
+ */
+function applySupportSession(
+  user: UserProfile | null,
+  session: SupportSession | null
+): UserProfile | null {
+  if (!user || !session) return user;
+
+  const scoped: UserProfile = { ...user, orgId: session.orgId };
+  if (session.viewAsRole === "tenant") {
+    return {
+      ...scoped,
+      role: "tenant",
+      tenantId: session.viewAsSubjectId,
+      vendorId: undefined,
+    };
+  }
+  if (session.viewAsRole === "contractor") {
+    return {
+      ...scoped,
+      role: "contractor",
+      vendorId: session.viewAsSubjectId,
+      tenantId: undefined,
+    };
+  }
+  return scoped;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -42,18 +82,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isDemo: false,
   supportSession: null,
   homeOrgId: null,
+  homeRole: null,
 
   setUser: (user) =>
     set((state) => ({
-      // A profile arriving from Firebase carries the operator's own orgId. If a
-      // support session is open, keep pointing the app at the customer instead —
+      // A profile arriving from Firebase carries the operator's own identity. If
+      // a support session is open, keep pointing the app at the customer —
       // otherwise a token refresh would silently drop them back into their own
       // organization mid-investigation.
-      user:
-        user && state.supportSession
-          ? { ...user, orgId: state.supportSession.orgId }
-          : user,
+      user: applySupportSession(user, state.supportSession),
       homeOrgId: user ? user.orgId : null,
+      homeRole: user ? user.role : null,
       isAuthenticated: !!user,
       isLoading: false,
     })),
@@ -61,14 +100,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setSupportSession: (session) =>
     set((state) => {
       const home = state.homeOrgId ?? state.user?.orgId ?? null;
+      // Rebuild from the operator's real identity rather than layering one
+      // override on top of another: switching from viewing as a tenant back to
+      // the staff view has to actually drop the tenantId, not keep it.
+      const base = state.user
+        ? { ...state.user, orgId: home ?? state.user.orgId, role: state.homeRole ?? state.user.role }
+        : null;
       return {
         supportSession: session,
-        user: state.user
-          ? {
-              ...state.user,
-              orgId: session ? session.orgId : home ?? state.user.orgId,
-            }
-          : state.user,
+        user: applySupportSession(base, session),
       };
     }),
 
@@ -99,6 +139,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isAuthenticated: false,
       supportSession: null,
       homeOrgId: null,
+      homeRole: null,
     });
   },
 
@@ -116,12 +157,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     }
 
+    // Through setUser, not a bare set: the listener fires on every token
+    // refresh, and writing the raw profile would quietly drop an operator out of
+    // a support session an hour into it.
     const unsubscribe = onAuthChange((profile) => {
-      set({
-        user: profile,
-        isAuthenticated: !!profile,
-        isLoading: false,
-      });
+      get().setUser(profile);
     });
 
     return unsubscribe;
