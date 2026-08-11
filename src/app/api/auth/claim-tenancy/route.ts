@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
-import { Collections } from "@/lib/firestore";
+import { Collections } from "@/lib/collections";
 
 /**
  * POST /api/auth/claim-tenancy

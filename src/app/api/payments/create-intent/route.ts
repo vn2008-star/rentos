@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireCaller, jsonError, isStaffRole } from "@/lib/api-auth";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { Collections } from "@/lib/firestore";
+import { Collections } from "@/lib/collections";
 import { applicationFeeFor, getStripe } from "@/lib/stripe-server";
 import type { Lease, Organization } from "@/lib/types";
 

@@ -19,7 +19,7 @@
 
 import { getApps, initializeApp, cert } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
-import { Collections } from "../src/lib/firestore";
+import { Collections } from "../src/lib/collections";
 import type { Organization } from "../src/lib/types";
 import {
   mockProperties, mockUnits, mockTenants, mockMaintenanceRequests,

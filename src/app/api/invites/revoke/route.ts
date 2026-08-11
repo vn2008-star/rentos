@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireOwnerOrManager, jsonError } from "@/lib/api-auth";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { Collections } from "@/lib/firestore";
+import { Collections } from "@/lib/collections";
 import type { OrgInvite } from "@/lib/types";
 
 /**

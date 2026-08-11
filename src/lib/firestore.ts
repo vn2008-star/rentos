@@ -171,25 +171,6 @@ export async function uploadMultipleFiles(
 // Collection-specific helpers
 // ============================================
 
-export const Collections = {
-  USERS: "users",
-  ORGANIZATIONS: "organizations",
-  INVITES: "invites",
-  PROPERTIES: "properties",
-  UNITS: "units",
-  TENANTS: "tenants",
-  LEASES: "leases",
-  APPLICATIONS: "applications",
-  MAINTENANCE: "maintenance",
-  VENDORS: "vendors",
-  TRANSACTIONS: "transactions",
-  LISTINGS: "listings",
-  SUBLETS: "sublets",
-  WORK_ORDERS: "work_orders",
-  NOTIFICATIONS: "notifications",
-  INSPECTIONS: "inspections",
-  KEYS: "keys",
-  LOCK_CHANGES: "lock_changes",
-  UNIT_NOTES: "unit_notes",
-  CALENDAR_EVENTS: "calendar_events",
-} as const;
+// Re-exported for the client code that has always imported it from here.
+// Server code should import from ./collections directly — see that file for why.
+export { Collections } from "./collections";

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { Collections } from "@/lib/firestore";
+import { Collections } from "@/lib/collections";
 import { intakeDisabled, resolvePublicOrg } from "@/lib/public-intake";
 import type { Property, Unit } from "@/lib/types";
 

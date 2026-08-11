@@ -55,6 +55,28 @@ export async function loginWithGoogle() {
 }
 
 /**
+ * Asks the server to grant this anonymous session read access to the demo
+ * organization. Idempotent — it rewrites the same profile every time — so it is
+ * safe for both callers below to attempt it.
+ */
+async function grantDemoAccess(user: User): Promise<boolean> {
+  try {
+    const res = await fetch("/api/demo/session", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      console.warn("[demo] access not granted:", data.error);
+    }
+    return res.ok;
+  } catch (err) {
+    console.warn("[demo] could not reach the server", err);
+    return false;
+  }
+}
+
+/**
  * Signs in as a read-only demo visitor.
  *
  * An anonymous session first, then the server grants it guest access to the
@@ -64,21 +86,16 @@ export async function loginWithGoogle() {
  */
 export async function loginAsDemoVisitor(): Promise<UserProfile> {
   const cred = await signInAnonymously(auth);
+  const profile = await getOrCreateUserProfile(cred.user);
 
-  const res = await fetch("/api/demo/session", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${await cred.user.getIdToken()}` },
-  });
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
+  if (!profile.orgId) {
     // Leaving a half-made anonymous session signed in would strand the visitor
     // in an app that can read nothing.
     await signOut(auth).catch(() => {});
-    throw new Error(data.error || "The demo could not be started.");
+    throw new Error("The demo could not be started. Please try again.");
   }
 
-  return getOrCreateUserProfile(cred.user);
+  return profile;
 }
 
 export async function logout() {
@@ -150,10 +167,33 @@ async function getOrCreateUserProfile(user: User): Promise<UserProfile> {
   }
 
   // An anonymous session is a demo visitor, and its profile is the server's to
-  // write (api/demo/session). Creating one here would race that write and, being
-  // a plain setDoc rather than a merge, could clobber the guest role with
-  // "manager" — handing a stranger write access to the demo organization.
+  // write: the rules refuse a client that tries to set its own orgId or role,
+  // which is what stops a signup walking into someone else's portfolio.
+  //
+  // Asking for it here rather than only at the click means both paths into this
+  // function — the explicit one, and the auth-state listener that fires the
+  // moment sign-in completes — end at the same profile. When only the click did
+  // it, whichever finished last won, and a listener that lost the race left the
+  // visitor with an empty orgId: signed in, on the dashboard, every query
+  // scoped to no organization at all.
   if (user.isAnonymous) {
+    const granted = await grantDemoAccess(user);
+    if (granted) {
+      const snap = await getDoc(doc(db, "users", user.uid)).catch(() => null);
+      if (snap?.exists()) {
+        const data = snap.data();
+        return {
+          id: user.uid,
+          email: "",
+          displayName: data.displayName || "Demo Visitor",
+          role: data.role || "guest",
+          orgId: data.orgId || "",
+          createdAt: new Date().toISOString(),
+        };
+      }
+    }
+    // Still read-only, just with nothing to read. The UI says so rather than
+    // pretending the demo organization is empty.
     return {
       id: user.uid,
       email: "",

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAdminAuth, getAdminDb } from "./firebase-admin";
-import { Collections } from "./firestore";
+import { Collections } from "./collections";
 import { isOwnerOrManagerRole, isStaffRole } from "./roles";
 import type { UserProfile } from "./types";
 

@@ -1,5 +1,5 @@
 import { getAdminDb } from "./firebase-admin";
-import { Collections } from "./firestore";
+import { Collections } from "./collections";
 import type { NotificationKind } from "./types";
 
 /**

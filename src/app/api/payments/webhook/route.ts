@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { Collections } from "@/lib/firestore";
+import { Collections } from "@/lib/collections";
 import { notifyOrg as notify } from "@/lib/server-notify";
 import { isPlanId } from "@/lib/plans";
 import type { BillingStatus } from "@/lib/types";
