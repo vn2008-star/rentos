@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { RentosMark } from "@/components/rentos-mark";
 import { Button } from "@/components/ui/button";
+import { PLANS, PLAN_ORDER, TRIAL_DAYS, formatPlanPrice } from "@/lib/plans";
 
 const features = [
   {
@@ -66,11 +67,20 @@ const testimonials = [
   { name: "Jessica Park", role: "RE Portfolio Manager", text: "The analytics dashboard gives me investor-ready reports in one click. Game changer.", rating: 5 },
 ];
 
-const pricingPlans = [
-  { name: "Starter", price: "$49", period: "/mo", units: "Up to 25 units", features: ["Portfolio dashboard", "Tenant management", "Basic maintenance", "Email support"], cta: "Start Free Trial", popular: false },
-  { name: "Professional", price: "$199", period: "/mo", units: "Up to 200 units", features: ["Everything in Starter", "Stripe payments & autopay", "Contractor portal", "Analytics & reporting", "Vacancy marketing", "Priority support"], cta: "Start Free Trial", popular: true },
-  { name: "Enterprise", price: "Custom", period: "", units: "Unlimited units", features: ["Everything in Pro", "SSO & RBAC", "Custom integrations", "Dedicated success manager", "SLA guarantee", "On-premise option"], cta: "Contact Sales", popular: false },
-];
+// Derived from the plan catalogue rather than restated here, so the price on
+// the marketing page cannot drift from the price we actually charge.
+const pricingPlans = PLAN_ORDER.map((id) => {
+  const plan = PLANS[id];
+  return {
+    name: plan.name,
+    price: formatPlanPrice(plan),
+    period: plan.price === null ? "" : "/mo",
+    units: plan.blurb,
+    features: plan.features,
+    cta: plan.contactSales ? "Contact Sales" : `Start ${TRIAL_DAYS}-Day Trial`,
+    popular: Boolean(plan.popular),
+  };
+});
 
 export default function LandingPage() {
   const router = useRouter();
@@ -304,7 +314,7 @@ export default function LandingPage() {
             <h2 className="text-3xl sm:text-4xl font-bold font-heading">Plans for every portfolio</h2>
             <p className="text-muted-foreground mt-3">Start free. Upgrade when you&apos;re ready.</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
             {pricingPlans.map((plan) => (
               <div key={plan.name} className={`rounded-2xl border p-6 space-y-5 relative ${plan.popular ? "border-primary/50 bg-primary/5 shadow-xl shadow-primary/10" : "border-border/50 bg-card/30"}`}>
                 {plan.popular && (

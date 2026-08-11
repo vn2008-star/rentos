@@ -63,7 +63,11 @@ export default function UnitsPage() {
       setShowAdd(false);
       setForm({ propertyId: "", unitNumber: "", beds: "1", baths: "1", sqft: "600", rent: "1400", deposit: "1400", status: "available" });
       setPhotos([]);
-    } catch { toast.error("Failed to add unit"); }
+    } catch (err: any) {
+      // Plan limits and rule denials both arrive here, and each has something
+      // specific to say — "Failed to add unit" told the user nothing.
+      toast.error(err?.message || "Failed to add unit");
+    }
     finally { setSaving(false); }
   };
 

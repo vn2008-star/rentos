@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/firestore";
 
 /**
@@ -36,16 +36,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { getAuth } = await import("firebase-admin/auth");
-    const { getApps, initializeApp, cert } = await import("firebase-admin/app");
-
-    if (getApps().length === 0) {
-      const rawKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-      if (rawKey) initializeApp({ credential: cert(JSON.parse(rawKey)) });
-      else initializeApp();
-    }
-
-    const decoded = await getAuth().verifyIdToken(token);
+    // Via getAdminAuth so the admin app is initialised in exactly one place —
+    // and so the import is not rewritten by the bundler into a specifier that
+    // does not resolve in production. See src/lib/node-import.ts.
+    const auth = await getAdminAuth();
+    const decoded = await auth.verifyIdToken(token);
     const uid = decoded.uid;
     const email = (decoded.email ?? "").trim().toLowerCase();
 

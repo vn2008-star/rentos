@@ -44,12 +44,56 @@ export interface UserProfile {
 }
 
 // ----- Organization (Multi-tenant) -----
+export type PlanId = "starter" | "growth" | "professional" | "enterprise";
+
+/**
+ * Where the org stands with us — whether they are paying for RentOS.
+ *
+ * Mirrors Stripe's subscription statuses, plus "trialing" for an org that has
+ * signed up but never entered a card. Security rules read this, so the strings
+ * must stay in sync with firestore.rules.
+ */
+export type BillingStatus =
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "incomplete";
+
+export interface OrgBilling {
+  status: BillingStatus;
+  /** The org's customer record for its RentOS subscription — not for rent. */
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  /** ISO. Set while status is "trialing"; the billing page nags past it. */
+  trialEndsAt?: string;
+  currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
+}
+
+/**
+ * The org's Stripe Connect account — where their rent actually lands.
+ *
+ * Without this every tenant's rent settles into the platform's own balance,
+ * which is somebody else's money sitting in our account. chargesEnabled is the
+ * gate: Stripe only sets it once identity and bank details clear.
+ */
+export interface OrgPayouts {
+  stripeAccountId?: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  /** Stripe's own words on what it still needs, for the settings screen. */
+  requirementsDue?: string[];
+  updatedAt?: string;
+}
+
 export interface Organization {
   id: string;
   name: string;
   slug: string;
   logo?: string;
-  plan: "starter" | "growth" | "professional" | "enterprise";
+  plan: PlanId;
   ownerId: string;
   settings: {
     timezone: string;
@@ -57,8 +101,43 @@ export interface Organization {
     lateFeeEnabled: boolean;
     lateFeeAmount: number;
     lateFeeDays: number;
+    /** Turns the public /o/{slug} repair and application pages on or off. */
+    publicIntake?: boolean;
   };
+  billing?: OrgBilling;
+  payouts?: OrgPayouts;
   createdAt: string;
+  updatedAt?: string;
+}
+
+// ----- Team Invites -----
+export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
+
+/**
+ * An invitation to join an organization.
+ *
+ * The document id doubles as the invite token — it goes in the emailed link and
+ * is generated server-side, so it is unguessable. Possession of the link alone
+ * is NOT enough to accept: the accepting account's verified email must match
+ * the address the invite was issued to. Otherwise a forwarded link would hand
+ * a stranger staff access to the portfolio.
+ */
+export interface OrgInvite {
+  id: string;
+  orgId: string;
+  orgName: string;
+  email: string;
+  role: UserRole;
+  status: InviteStatus;
+  invitedBy: string;
+  invitedByName: string;
+  /** Set when inviting an existing Tenant or Vendor record to their portal. */
+  tenantId?: string;
+  vendorId?: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string;
+  acceptedBy?: string;
 }
 
 // ----- Properties -----
@@ -380,6 +459,7 @@ export type NotificationKind =
   | "payment_failed"
   | "payment_received"
   | "maintenance_urgent"
+  | "maintenance_reported"
   | "lease_expiring"
   | "application_received";
 

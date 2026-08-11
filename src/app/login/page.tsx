@@ -21,10 +21,28 @@ const DEMO_PERSONAS: { persona: DemoPersona; label: string; href: string }[] = [
   { persona: "contractor", label: "Contractor", href: "/contractor/wo-1" },
 ];
 
+/**
+ * Where to go after signing in.
+ *
+ * Read from the URL after mount rather than with useSearchParams, which would
+ * force this page out of static rendering and demand a Suspense boundary.
+ * Only same-site paths are honoured — an absolute URL here would turn the login
+ * page into an open redirect.
+ */
+function useNextPath(): string | null {
+  const [next, setNext] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("next");
+    if (raw && raw.startsWith("/") && !raw.startsWith("//")) setNext(raw);
+  }, []);
+  return next;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const setUser = useAuthStore((s) => s.setUser);
   const loginAsDemo = useAuthStore((s) => s.loginAsDemo);
+  const nextPath = useNextPath();
   // Inlined at build time, so server and client agree — safe to read during render.
   const demoReady = isDemoAvailable();
 
@@ -46,7 +64,7 @@ export default function LoginPage() {
     try {
       const profile = await loginWithEmail(email, password);
       setUser(profile);
-      router.push("/dashboard");
+      router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
     } catch (err: any) {
       const code = err?.code || "";
       if (code === "auth/user-not-found" || code === "auth/wrong-password" || code === "auth/invalid-credential") {
@@ -67,7 +85,7 @@ export default function LoginPage() {
     try {
       const profile = await loginWithGoogle();
       setUser(profile);
-      router.push("/dashboard");
+      router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
     } catch (err: any) {
       if (err?.code !== "auth/popup-closed-by-user") {
         setError("Google sign-in failed. Please try again.");

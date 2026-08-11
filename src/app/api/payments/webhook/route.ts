@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/firestore";
+import { notifyOrg as notify } from "@/lib/server-notify";
+import { isPlanId } from "@/lib/plans";
+import type { BillingStatus } from "@/lib/types";
 
 /**
  * POST /api/payments/webhook
@@ -30,27 +33,50 @@ async function tenantLabel(tenantId?: string): Promise<string> {
   }
 }
 
-/** Write an in-app notification. Never throws — a failed notify must not fail the webhook. */
-async function notify(n: {
-  orgId: string;
-  kind: string;
-  title: string;
-  body: string;
-  audience: "manager" | "tenant";
-  tenantId?: string;
-  href?: string;
-}): Promise<void> {
-  try {
-    const db = await getAdminDb();
-    await db.collection(Collections.NOTIFICATIONS).add({
-      ...n,
-      tenantId: n.tenantId ?? null,
-      read: false,
-      createdAt: new Date().toISOString(),
-    });
-  } catch (err: any) {
-    console.error("[Webhook] Failed to write notification:", err.message);
+/**
+ * Writes a subscription's state onto the organization.
+ *
+ * Only the fields Stripe actually reported are touched: a subscription update
+ * that says nothing about the plan must not blank the plan the org is on.
+ */
+async function applySubscription(
+  db: FirebaseFirestore.Firestore,
+  orgId: string,
+  input: {
+    plan?: string;
+    subscriptionId?: string | null;
+    customerId?: string | null;
+    status: BillingStatus;
+    currentPeriodEnd?: string;
+    cancelAtPeriodEnd?: boolean;
   }
+): Promise<void> {
+  const orgRef = db.collection(Collections.ORGANIZATIONS).doc(orgId);
+  const snap = await orgRef.get();
+  if (!snap.exists) {
+    console.error(`[Webhook] No organization ${orgId} to bill`);
+    return;
+  }
+
+  const existing = (snap.data()?.billing ?? {}) as Record<string, unknown>;
+
+  await orgRef.set(
+    {
+      ...(isPlanId(input.plan) ? { plan: input.plan } : {}),
+      billing: {
+        ...existing,
+        status: input.status,
+        ...(input.subscriptionId ? { stripeSubscriptionId: input.subscriptionId } : {}),
+        ...(input.customerId ? { stripeCustomerId: input.customerId } : {}),
+        ...(input.currentPeriodEnd ? { currentPeriodEnd: input.currentPeriodEnd } : {}),
+        ...(input.cancelAtPeriodEnd !== undefined
+          ? { cancelAtPeriodEnd: input.cancelAtPeriodEnd }
+          : {}),
+      },
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
 }
 
 /** Resolve orgId from the intent metadata, falling back to the lease record. */
@@ -252,6 +278,66 @@ export async function POST(req: NextRequest) {
         );
 
         console.log(`[Webhook] Autopay enabled for tenant ${tenantId}`);
+        break;
+      }
+
+      // ----- RentOS subscriptions (the org paying us) -----
+      // Distinct from everything above, which is a tenant paying their landlord.
+
+      case "checkout.session.completed": {
+        const session = event.data.object;
+        if (session.mode !== "subscription") break;
+
+        const orgId = session.metadata?.orgId || session.client_reference_id;
+        if (!orgId) {
+          console.error(`[Webhook] checkout ${session.id} has no orgId`);
+          break;
+        }
+
+        await applySubscription(db, orgId, {
+          plan: session.metadata?.plan,
+          subscriptionId: session.subscription,
+          customerId: session.customer,
+          status: "active",
+        });
+
+        console.log(`[Webhook] ${orgId} subscribed (${session.metadata?.plan})`);
+        break;
+      }
+
+      case "customer.subscription.created":
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted": {
+        const sub = event.data.object;
+        const orgId = sub.metadata?.orgId;
+        if (!orgId) {
+          console.error(`[Webhook] subscription ${sub.id} has no orgId in metadata`);
+          break;
+        }
+
+        await applySubscription(db, orgId, {
+          plan: sub.metadata?.plan,
+          subscriptionId: sub.id,
+          customerId: sub.customer,
+          // Stripe's vocabulary is wider than ours; anything we do not model
+          // (paused, unpaid, incomplete_expired) is treated as not paying.
+          status:
+            event.type === "customer.subscription.deleted"
+              ? "canceled"
+              : sub.status === "active" || sub.status === "trialing"
+                ? "active"
+                : sub.status === "past_due"
+                  ? "past_due"
+                  : sub.status === "incomplete"
+                    ? "incomplete"
+                    : "canceled",
+          currentPeriodEnd: sub.current_period_end
+            ? new Date(sub.current_period_end * 1000).toISOString()
+            : undefined,
+          cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
+        });
+
+        console.log(`[Webhook] ${orgId} subscription is now ${sub.status}`);
         break;
       }
 

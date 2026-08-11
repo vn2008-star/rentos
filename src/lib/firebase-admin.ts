@@ -1,18 +1,26 @@
-import type { Firestore } from "firebase-admin/firestore";
+import type { Auth } from "firebase-admin/auth";
+import type { FieldValue, Firestore } from "firebase-admin/firestore";
+import { nodeImport } from "./node-import";
 
 /**
- * Server-side Firestore access for API routes.
+ * Server-side Firebase access for API routes.
  *
  * The client SDK in ./firebase.ts runs as the signed-in user and is subject to
  * security rules. Webhooks have no signed-in user -- Stripe calls us directly --
- * so they need the Admin SDK, which bypasses rules.
+ * so they need the Admin SDK, which bypasses rules. The API routes use it for a
+ * second reason: orgId, role and tenantId decide what a profile may see, and the
+ * rules forbid a client from writing any of them, so only the Admin SDK can
+ * create an organization or admit somebody to one.
  *
- * firebase-admin is imported dynamically, not at module scope. Firebase's
+ * firebase-admin is imported at call time, not at module scope. Firebase's
  * deploy step loads the server bundle to discover its exports and gives up
  * after 10s; pulling in the admin SDK (gRPC and the auth stack) at import time
  * blows that budget and fails the deploy with "Cannot determine backend
  * specification". Loading it inside the call also keeps it off the cold-start
  * path for every route that never touches Firestore server-side.
+ *
+ * It goes through nodeImport rather than a plain dynamic import -- see
+ * ./node-import.ts for why a bundler-visible import breaks in production.
  *
  * On Cloud Run (where the SSR function runs) credentials come from Application
  * Default Credentials automatically, so no key file is needed in production.
@@ -20,24 +28,48 @@ import type { Firestore } from "firebase-admin/firestore";
  */
 
 let cachedDb: Firestore | null = null;
+let cachedAuth: Auth | null = null;
+
+/** The one place the admin app is initialised, so routes cannot race each other. */
+async function getAdminApp() {
+  const { getApps, initializeApp, cert } = await nodeImport("firebase-admin/app");
+
+  const existing = getApps();
+  if (existing.length > 0) return existing[0];
+
+  return process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+    ? initializeApp({
+        credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)),
+      })
+    : // Application Default Credentials -- the production path.
+      initializeApp();
+}
 
 export async function getAdminDb(): Promise<Firestore> {
   if (cachedDb) return cachedDb;
 
-  const { getApps, initializeApp, cert } = await import("firebase-admin/app");
-  const { getFirestore } = await import("firebase-admin/firestore");
+  const app = await getAdminApp();
+  const { getFirestore } = await nodeImport("firebase-admin/firestore");
 
-  const existing = getApps();
-  const app =
-    existing.length > 0
-      ? existing[0]
-      : process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-        ? initializeApp({
-            credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY)),
-          })
-        : // Application Default Credentials -- the production path.
-          initializeApp();
-
-  cachedDb = getFirestore(app);
+  // nodeImport is deliberately untyped, so the cast is where the types come
+  // back. The `import type` at the top of this file is erased at build time and
+  // never becomes a runtime import.
+  cachedDb = getFirestore(app) as Firestore;
   return cachedDb;
+}
+
+export async function getAdminAuth(): Promise<Auth> {
+  if (cachedAuth) return cachedAuth;
+
+  const app = await getAdminApp();
+  const { getAuth } = await nodeImport("firebase-admin/auth");
+
+  cachedAuth = getAuth(app) as Auth;
+  return cachedAuth;
+}
+
+/** FieldValue, for deleting fields and other sentinels. */
+export async function getFieldValue(): Promise<typeof FieldValue> {
+  const { FieldValue: fv } = await nodeImport("firebase-admin/firestore");
+  return fv;
 }

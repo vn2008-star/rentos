@@ -61,6 +61,35 @@ service cloud.firestore {
       return hasProfile() && tenantId != null && callerTenantId() == tenantId;
     }
 
+    // Whether the organization is still paying for RentOS.
+    //
+    // Rules cannot count documents, so per-plan unit limits are enforced in the
+    // application (see canAddUnit in src/lib/plans.ts). What CAN be enforced
+    // here is the thing that must not be bypassable by talking to Firestore
+    // directly: an organization whose subscription has ended stops being able
+    // to take on new properties, units and leases.
+    //
+    // Reading and editing existing records is untouched. Locking a landlord out
+    // of their own tenancy records over a billing lapse would punish their
+    // tenants for something they had no part in.
+    //
+    // past_due counts as alive: Stripe retries a failed card for weeks before
+    // giving up, and only then does the status become canceled.
+    function orgBilling(orgId) {
+      return get(/databases/$(database)/documents/organizations/$(orgId))
+               .data.get('billing', {});
+    }
+
+    function subscriptionAlive(orgId) {
+      return orgBilling(orgId).get('status', 'trialing')
+             in ['trialing', 'active', 'past_due'];
+    }
+
+    /** Staff of the org, and the org is entitled to grow. */
+    function canProvision(orgId) {
+      return isOrgStaff(orgId) && subscriptionAlive(orgId);
+    }
+
     // ============================================
     // User Profiles
     // ============================================
@@ -73,7 +102,12 @@ service cloud.firestore {
     // i.e. a new signup founding their own org. Joining an EXISTING org must go
     // through the Admin SDK (scripts/link-user-to-org.ts), which bypasses rules.
     match /users/{userId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
+      // Your own profile, always. Org staff may also read the profiles of
+      // people in their own organization — the team screen has to be able to
+      // list who has access, and an org that cannot see its own members cannot
+      // notice a stale one.
+      allow read: if isSignedIn()
+                  && (request.auth.uid == userId || isOrgStaff(resource.data.orgId));
 
       allow create: if isSignedIn()
                     && request.auth.uid == userId
@@ -93,9 +127,46 @@ service cloud.firestore {
     // ============================================
     match /organizations/{orgId} {
       allow read: if belongsToOrg(orgId);
-      // Only for a brand-new org being founded by its first user.
-      allow create: if isSignedIn() && !exists(/databases/$(database)/documents/organizations/$(orgId));
-      allow update: if belongsToOrg(orgId) && isOwnerOrManager();
+
+      // Founding an organization goes through /api/org/create, which uses the
+      // Admin SDK. Allowing it from a browser meant a signed-in user could
+      // create an org naming anybody as its owner, on any plan, with billing
+      // already marked active.
+      allow create: if false;
+
+      // Owners and managers maintain the name, timezone and fee settings.
+      //
+      // The rest is off limits, and each for a concrete reason:
+      //   billing  — a client that could write it would grant itself a free
+      //              subscription; only the Stripe webhook sets it.
+      //   payouts  — this names the Stripe account rent is paid into. Writable
+      //              from the browser, it is a redirect-my-tenants'-rent button.
+      //   plan     — follows the subscription, not the customer's preference.
+      //   ownerId  — whoever holds it cannot be removed or demoted.
+      //   slug     — the public URL on their notices and signs; changing it
+      //              silently breaks every link already in the world.
+      allow update: if belongsToOrg(orgId)
+                    && isOwnerOrManager()
+                    && request.resource.data.get('billing', {}) == resource.data.get('billing', {})
+                    && request.resource.data.get('payouts', {}) == resource.data.get('payouts', {})
+                    && request.resource.data.get('plan', '') == resource.data.get('plan', '')
+                    && request.resource.data.get('ownerId', '') == resource.data.get('ownerId', '')
+                    && request.resource.data.get('slug', '') == resource.data.get('slug', '');
+
+      allow delete: if false;
+    }
+
+    // ============================================
+    // Team Invitations
+    // ============================================
+    // An invite is a credential: holding one and matching its email address is
+    // enough to be admitted to an organization. Staff may read their own org's
+    // invites so the team screen can list and revoke them, but no client writes
+    // them — issuing, accepting and revoking all go through API routes that
+    // verify the caller first. See src/app/api/invites.
+    match /invites/{inviteId} {
+      allow read: if isOrgStaff(resource.data.orgId);
+      allow write: if false;
     }
 
     // ============================================
@@ -105,7 +176,7 @@ service cloud.firestore {
     // available units happens through /listings, which is world-readable below.
     match /properties/{propertyId} {
       allow read: if isOrgStaff(resource.data.orgId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow create: if canProvision(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
@@ -115,7 +186,7 @@ service cloud.firestore {
     // ============================================
     match /units/{unitId} {
       allow read: if isOrgStaff(resource.data.orgId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow create: if canProvision(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
@@ -144,7 +215,7 @@ service cloud.firestore {
     match /leases/{leaseId} {
       allow read: if isOrgStaff(resource.data.orgId)
                   || (hasProfile() && callerTenantId() in resource.data.tenantIds);
-      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow create: if canProvision(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
@@ -152,12 +223,14 @@ service cloud.firestore {
     // ============================================
     // Applications
     // ============================================
-    // Prospective renters are not signed in and have no org, so creation is open
-    // — but the payload must name a real organization, which stops applications
-    // being written into arbitrary or non-existent orgs.
+    // Applications from the public go through /api/public/apply, which resolves
+    // the organization itself and checks the unit belongs to it. Open creation
+    // from the browser let anyone write an application into any organization
+    // with any contents — the rules could check little more than "that org
+    // exists". Staff still file applications taken over the phone.
     match /applications/{appId} {
       allow read: if isOrgStaff(resource.data.orgId);
-      allow create: if exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId));
+      allow create: if isOrgStaff(request.resource.data.orgId);
       allow update: if isOrgStaff(resource.data.orgId);
       allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
     }
@@ -165,14 +238,20 @@ service cloud.firestore {
     // ============================================
     // Maintenance Requests
     // ============================================
-    // /maintenance/report is a public page — a tenant without an account, or a
-    // passer-by reporting a hazard, must be able to file. Creation is therefore
-    // unauthenticated but validated: real org, sane status, no photos of
-    // someone else's making.
+    // Reports from people with no account — a tenant nobody set up, a passer-by
+    // who can see water coming through a ceiling — arrive through
+    // /api/public/maintenance, which resolves the organization and checks the
+    // property and unit belong to it. Unauthenticated writes straight from the
+    // browser could name any org and any building in it.
+    //
+    // Staff file reports on behalf of callers; a tenant files their own, which
+    // is what the tenantId check pins down.
     match /maintenance/{requestId} {
       allow read: if isOrgStaff(resource.data.orgId)
                   || isSelfTenant(resource.data.get('tenantId', ''));
-      allow create: if exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId))
+      allow create: if (isOrgStaff(request.resource.data.orgId)
+                        || (belongsToOrg(request.resource.data.orgId)
+                            && isSelfTenant(request.resource.data.get('tenantId', ''))))
                     && request.resource.data.status == 'submitted'
                     && request.resource.data.title is string
                     && request.resource.data.title.size() > 0

@@ -16,6 +16,8 @@ import {
   mockInspections, mockKeys, mockLockChanges, mockUnitNotes, mockCalendarEvents,
 } from "./mock-data";
 import { buildReminders } from "./reminders";
+import { useOrganization } from "./use-org";
+import { canAddUnit } from "./plans";
 import type {
   Property, Unit, Tenant, MaintenanceRequest, RentalApplication,
   Lease, Transaction, Listing, Sublet, LeaseStatus, ApplicationStatus, ScreeningResult,
@@ -214,8 +216,12 @@ export function useProperties() {
 
 export function useUnits() {
   const user = useAuthStore((s) => s.user);
+  const { org, plan } = useOrganization();
   const { data: units, setData: setUnits, loading, isLive } =
     useFirestoreCollection<Unit>(Collections.UNITS, mockUnits);
+
+  const unitLimit = plan.unitLimit;
+  const atLimit = unitLimit !== null && units.length >= unitLimit;
 
   const addUnit = useCallback(async (input: {
     propertyId: string; unitNumber: string; beds: number; baths: number;
@@ -223,6 +229,15 @@ export function useUnits() {
     photos?: File[];
   }) => {
     const orgId = user?.orgId || "org-1";
+
+    // The plan's unit limit. Security rules cannot count documents, so this is
+    // where a count-based limit has to live; the rules enforce the subscription
+    // being alive at all, which is the part that must not be bypassable.
+    if (!canAddUnit(org?.plan, units.length)) {
+      throw new Error(
+        `Your ${plan.name} plan covers ${unitLimit} units. Upgrade from Billing to add more.`
+      );
+    }
 
     let photoUrls: string[] = [];
     if (input.photos?.length) {
@@ -257,7 +272,7 @@ export function useUnits() {
       setUnits(prev => [...prev, { ...unit, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Unit]);
       return id;
     }
-  }, [user?.orgId, isLive, setUnits]);
+  }, [user?.orgId, isLive, setUnits, org?.plan, plan.name, unitLimit, units.length]);
 
   const editUnit = useCallback(async (id: string, updates: Partial<Unit>) => {
     try { await updateDocument(Collections.UNITS, id, updates); } catch { /* offline */ }
@@ -271,7 +286,7 @@ export function useUnits() {
     setUnits(prev => prev.filter(u => u.id !== id));
   }, [setUnits]);
 
-  return { units, loading, isLive, addUnit, editUnit, removeUnit };
+  return { units, loading, isLive, addUnit, editUnit, removeUnit, unitLimit, atLimit };
 }
 
 // ============================================

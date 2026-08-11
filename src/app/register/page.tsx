@@ -16,9 +16,24 @@ import { Separator } from "@/components/ui/separator";
 import type { UserRole } from "@/lib/types";
 import Link from "next/link";
 
+/**
+ * Where to go after signing up — an invite link sends people here and expects
+ * them back. Same-site paths only; an absolute URL would make this an open
+ * redirect. Read after mount so the page stays statically rendered.
+ */
+function useNextPath(): string | null {
+  const [next, setNext] = useState<string | null>(null);
+  React.useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("next");
+    if (raw && raw.startsWith("/") && !raw.startsWith("//")) setNext(raw);
+  }, []);
+  return next;
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const setUser = useAuthStore((s) => s.setUser);
+  const nextPath = useNextPath();
   const [form, setForm] = useState({ name: "", email: "", password: "", confirmPassword: "", role: "manager" as UserRole });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -40,7 +55,7 @@ export default function RegisterPage() {
         "Account created — check your email and click the verification link, then sign in again.",
         { duration: 8000 }
       );
-      router.push(profile.role === "tenant" ? "/portal" : "/dashboard");
+      router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
     } catch (err: any) {
       const code = err?.code || "";
       if (code === "auth/email-already-in-use") { setError("An account with this email already exists."); }
@@ -57,7 +72,7 @@ export default function RegisterPage() {
     try {
       const profile = await loginWithGoogle();
       setUser(profile);
-      router.push("/dashboard");
+      router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
     } catch (err: any) {
       if (err?.code !== "auth/popup-closed-by-user") { setError("Google sign-in failed."); }
     } finally {

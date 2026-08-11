@@ -42,7 +42,13 @@ const ORG: Organization = {
     lateFeeEnabled: true,
     lateFeeAmount: 50,
     lateFeeDays: 5,
+    publicIntake: true,
   },
+  // Security rules read billing.status before allowing new properties, units or
+  // leases. Seeded as active so the demo portfolio behaves like a paying
+  // customer rather than a lapsed one.
+  billing: { status: "active" },
+  payouts: { chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false },
   createdAt: "2024-01-01T00:00:00Z",
 };
 

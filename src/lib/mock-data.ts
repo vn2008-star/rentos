@@ -2,11 +2,38 @@ import type {
   Property, Unit, Tenant, MaintenanceRequest, DashboardStats, RentalApplication,
   Lease, Transaction, PaymentRecord, Listing, Sublet, Vendor, WorkOrder,
   Notification, Inspection, KeyRecord, LockChange, UnitNote, CalendarEvent,
+  Organization,
 } from "./types";
 
 // ============================================
 // Mock Data for Development & Demo
 // ============================================
+
+/**
+ * The demo organization every other mock record belongs to.
+ *
+ * Demo mode has no Firestore, so without this the app would decide the signed-in
+ * demo user has no organization and send them to onboarding — which cannot
+ * complete without a backend.
+ */
+export const mockOrganization: Organization = {
+  id: "org-1",
+  name: "Davis Housing Services",
+  slug: "davis-housing-services",
+  plan: "professional",
+  ownerId: "demo-owner",
+  settings: {
+    timezone: "America/Los_Angeles",
+    currency: "USD",
+    lateFeeEnabled: true,
+    lateFeeAmount: 50,
+    lateFeeDays: 5,
+    publicIntake: true,
+  },
+  billing: { status: "active", currentPeriodEnd: "2026-12-31T00:00:00Z" },
+  payouts: { chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true },
+  createdAt: "2024-01-01T00:00:00Z",
+};
 
 export const mockProperties: Property[] = [
   {

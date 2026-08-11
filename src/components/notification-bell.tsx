@@ -16,6 +16,7 @@ const KIND_ICON: Record<NotificationKind, React.ComponentType<{ className?: stri
   payment_failed: AlertCircle,
   payment_received: DollarSign,
   maintenance_urgent: Wrench,
+  maintenance_reported: Wrench,
   lease_expiring: CalendarClock,
   application_received: FileText,
 };
@@ -24,6 +25,7 @@ const KIND_TONE: Record<NotificationKind, string> = {
   payment_failed: "text-red-400 bg-red-500/15",
   payment_received: "text-emerald-400 bg-emerald-500/15",
   maintenance_urgent: "text-amber-400 bg-amber-500/15",
+  maintenance_reported: "text-sky-400 bg-sky-500/15",
   lease_expiring: "text-blue-400 bg-blue-500/15",
   application_received: "text-violet-400 bg-violet-500/15",
 };

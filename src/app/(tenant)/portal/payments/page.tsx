@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
-import { CreditCard, DollarSign, Clock, CheckCircle2, ToggleLeft, ToggleRight, History } from "lucide-react";
+import { CreditCard, DollarSign, Clock, CheckCircle2, History } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useLeases, useCurrentTenant, useTransactions } from "@/lib/hooks";
 import { StripePaymentForm } from "@/components/stripe-payment-form";
+import { AutopaySetup } from "@/components/autopay-setup";
 import toast from "react-hot-toast";
 
 export default function TenantPaymentsPage() {
@@ -14,7 +15,6 @@ export default function TenantPaymentsPage() {
   const { tenant: currentTenant } = useCurrentTenant();
   const { transactions } = useTransactions();
   const [showPayment, setShowPayment] = useState(false);
-  const [autopay, setAutopay] = useState(false);
 
   const myTenant = currentTenant;
   const myLease = leases.find(l => l.tenantIds.includes(myTenant?.id || ""));
@@ -61,38 +61,13 @@ export default function TenantPaymentsPage() {
           amount={myLease.rentAmount}
           description={`Rent — Unit ${myLease.unitId}`}
           leaseId={myLease.id}
-          tenantId={myTenant?.id || ""}
-          orgId={myLease.orgId}
-          email={myTenant?.email}
           onSuccess={handlePaymentSuccess}
           onError={(err) => toast.error(err)}
         />
       )}
 
       {/* Autopay Toggle */}
-      <Card className="border-border/50 bg-card/50">
-        <CardContent className="p-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-blue-500/15 p-2.5">
-              <CreditCard className="h-5 w-5 text-blue-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">Auto-Pay</p>
-              <p className="text-xs text-muted-foreground">Automatically pay rent on the 1st</p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            className="h-10"
-            onClick={() => {
-              setAutopay(!autopay);
-              toast.success(autopay ? "Auto-pay disabled" : "Auto-pay enabled");
-            }}
-          >
-            {autopay ? <ToggleRight className="h-8 w-8 text-primary" /> : <ToggleLeft className="h-8 w-8 text-muted-foreground" />}
-          </Button>
-        </CardContent>
-      </Card>
+      <AutopaySetup tenant={myTenant} />
 
       {/* Payment History */}
       <Card className="border-border/50 bg-card/50">

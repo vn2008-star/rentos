@@ -17,6 +17,9 @@ let testEnv;
 
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
+// An organisation whose subscription has ended — used to prove the billing gate
+// blocks new records without touching the existing ones.
+const LAPSED_ORG = "org-lapsed";
 
 // users/{uid} documents the rules read via getUserProfile()
 const PROFILES = {
@@ -34,6 +37,8 @@ const PROFILES = {
   vendor1: { role: "contractor", orgId: ORG, vendorId: "vendor-1", email: "v1@example.com" },
   // Contractor with a vendorId that matches no assigned work order
   vendor2: { role: "contractor", orgId: ORG, vendorId: "vendor-2", email: "v2@example.com" },
+  // Manager of an organisation that has stopped paying for RentOS.
+  lapsed: { role: "manager", orgId: LAPSED_ORG, email: "lapsed@example.com" },
 };
 
 const WORK_ORDER = {
@@ -68,7 +73,35 @@ before(async () => {
 
     // The org must exist: several create rules check it, and the users rule
     // uses its absence to decide whether someone is founding a new org.
-    await setDoc(doc(db, "organizations", ORG), { name: "Davis Housing Services" });
+    // billing.status is what the provisioning gate reads.
+    await setDoc(doc(db, "organizations", ORG), {
+      name: "Davis Housing Services",
+      slug: "davis-housing-services",
+      plan: "professional",
+      ownerId: "manager",
+      billing: { status: "active" },
+      payouts: { chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true },
+      settings: { timezone: "America/Los_Angeles", currency: "USD" },
+    });
+
+    await setDoc(doc(db, "organizations", LAPSED_ORG), {
+      name: "Lapsed Lettings",
+      slug: "lapsed-lettings",
+      plan: "starter",
+      ownerId: "lapsed",
+      billing: { status: "canceled" },
+    });
+
+    await setDoc(doc(db, "invites", "invite-1"), {
+      orgId: ORG,
+      email: "newhire@example.com",
+      role: "manager",
+      status: "pending",
+      expiresAt: "2099-01-01T00:00:00Z",
+    });
+
+    // Something for the lapsed org to still be able to read and edit.
+    await setDoc(doc(db, "units", "lapsed-unit"), { orgId: LAPSED_ORG, unitNumber: "1" });
 
     await setDoc(doc(db, "tenants", "tenant-1"), { orgId: ORG, firstName: "Sarah", lastName: "Chen" });
     await setDoc(doc(db, "tenants", "tenant-2"), { orgId: ORG, firstName: "James", lastName: "Rodriguez" });
@@ -172,6 +205,16 @@ describe("users", () => {
 
   test("a user cannot read someone else's profile", async () => {
     await assertFails(getDoc(doc(as("tenant"), "users", "manager")));
+  });
+
+  test("staff can read profiles in their own org", async () => {
+    // The team screen lists who has access; an org that cannot see its own
+    // members cannot notice a stale one.
+    await assertSucceeds(getDoc(doc(as("manager"), "users", "tenant")));
+  });
+
+  test("staff cannot read profiles in another org", async () => {
+    await assertFails(getDoc(doc(as("outsider"), "users", "tenant")));
   });
 
   test("a user cannot promote themselves to manager", async () => {
@@ -385,8 +428,11 @@ describe("notifications", () => {
 });
 
 // ============================================================
-// Public maintenance reporting
+// Maintenance reporting
 // ============================================================
+// Reports from the public now arrive through /api/public/maintenance, which
+// resolves the organisation itself and checks the property and unit belong to
+// it. Direct writes from a browser are closed.
 
 describe("maintenance", () => {
   const valid = {
@@ -400,35 +446,212 @@ describe("maintenance", () => {
     priority: "urgent",
   };
 
-  test("an unauthenticated reporter can file a request", async () => {
-    // /maintenance/report is a public page — a tenant without an account, or a
-    // passer-by reporting a hazard, has to be able to file.
-    await assertSucceeds(setDoc(doc(anon(), "maintenance", "public-1"), valid));
+  test("an unauthenticated reporter cannot write straight to Firestore", async () => {
+    await assertFails(setDoc(doc(anon(), "maintenance", "public-1"), valid));
   });
 
-  test("a request cannot be filed into an organisation that does not exist", async () => {
+  test("a tenant can file a request for themselves", async () => {
+    await assertSucceeds(
+      setDoc(doc(as("tenant"), "maintenance", "tenant-filed"), { ...valid, tenantId: "tenant-1" })
+    );
+  });
+
+  test("a tenant cannot file one in someone else's name", async () => {
     await assertFails(
-      setDoc(doc(anon(), "maintenance", "public-2"), { ...valid, orgId: "org-does-not-exist" })
+      setDoc(doc(as("tenant"), "maintenance", "impersonated"), { ...valid, tenantId: "tenant-2" })
+    );
+  });
+
+  test("staff can file a request taken over the phone", async () => {
+    await assertSucceeds(setDoc(doc(as("manager"), "maintenance", "staff-filed"), valid));
+  });
+
+  test("staff cannot file into another organisation", async () => {
+    await assertFails(
+      setDoc(doc(as("outsider"), "maintenance", "cross-org"), valid)
     );
   });
 
   test("a request cannot be filed pre-completed", async () => {
     await assertFails(
-      setDoc(doc(anon(), "maintenance", "public-3"), { ...valid, status: "completed" })
+      setDoc(doc(as("manager"), "maintenance", "public-3"), { ...valid, status: "completed" })
     );
   });
 
   test("an empty title is rejected", async () => {
-    await assertFails(setDoc(doc(anon(), "maintenance", "public-4"), { ...valid, title: "" }));
+    await assertFails(setDoc(doc(as("manager"), "maintenance", "public-4"), { ...valid, title: "" }));
   });
 
   test("an absurdly long title is rejected", async () => {
     await assertFails(
-      setDoc(doc(anon(), "maintenance", "public-5"), { ...valid, title: "x".repeat(300) })
+      setDoc(doc(as("manager"), "maintenance", "public-5"), { ...valid, title: "x".repeat(300) })
     );
   });
 
-  test("an anonymous reporter cannot then read the org's requests", async () => {
-    await assertFails(getDoc(doc(anon(), "maintenance", "public-1")));
+  test("an anonymous visitor cannot read the org's requests", async () => {
+    await assertFails(getDoc(doc(anon(), "maintenance", "staff-filed")));
+  });
+});
+
+// ============================================================
+// Applications
+// ============================================================
+
+describe("applications", () => {
+  const application = {
+    orgId: ORG,
+    unitId: "unit-1",
+    propertyId: "prop-1",
+    status: "submitted",
+    applicant: { firstName: "Ada", lastName: "Lovelace", email: "ada@example.com" },
+  };
+
+  test("the public cannot write an application directly", async () => {
+    // They go through /api/public/apply, which validates the unit belongs to
+    // the organisation being applied to.
+    await assertFails(setDoc(doc(anon(), "applications", "anon-app"), application));
+  });
+
+  test("staff can file one taken over the phone", async () => {
+    await assertSucceeds(setDoc(doc(as("manager"), "applications", "staff-app"), application));
+  });
+
+  test("a tenant cannot file an application into the org", async () => {
+    await assertFails(setDoc(doc(as("tenant"), "applications", "tenant-app"), application));
+  });
+});
+
+// ============================================================
+// The organisation record — plan, billing and payout details
+// ============================================================
+
+describe("organizations", () => {
+  test("staff can read their own organisation", async () => {
+    await assertSucceeds(getDoc(doc(as("manager"), "organizations", ORG)));
+  });
+
+  test("another org cannot read it", async () => {
+    await assertFails(getDoc(doc(as("outsider"), "organizations", ORG)));
+  });
+
+  test("nobody can found an organisation from the browser", async () => {
+    // /api/org/create does this with the Admin SDK after verifying the caller.
+    // Left open, a signup could create an org naming anyone as owner, already
+    // marked as paying.
+    await assertFails(
+      setDoc(doc(as("founder"), "organizations", "org-diy"), {
+        name: "Do It Yourself", ownerId: "founder", plan: "enterprise",
+        billing: { status: "active" },
+      })
+    );
+  });
+
+  test("a manager can rename the organisation", async () => {
+    await assertSucceeds(
+      updateDoc(doc(as("manager"), "organizations", ORG), { name: "Davis Housing Services LLC" })
+    );
+  });
+
+  test("a manager cannot give themselves a free subscription", async () => {
+    await assertFails(
+      updateDoc(doc(as("manager"), "organizations", ORG), {
+        billing: { status: "active", stripeSubscriptionId: "sub_forged" },
+      })
+    );
+  });
+
+  test("a manager cannot upgrade their own plan", async () => {
+    await assertFails(
+      updateDoc(doc(as("manager"), "organizations", ORG), { plan: "enterprise" })
+    );
+  });
+
+  test("a manager cannot redirect rent to another Stripe account", async () => {
+    // The payouts block names the account tenants' rent is paid into.
+    await assertFails(
+      updateDoc(doc(as("manager"), "organizations", ORG), {
+        payouts: { stripeAccountId: "acct_attacker", chargesEnabled: true },
+      })
+    );
+  });
+
+  test("a manager cannot change the public slug", async () => {
+    await assertFails(
+      updateDoc(doc(as("manager"), "organizations", ORG), { slug: "somebody-elses-name" })
+    );
+  });
+
+  test("a tenant cannot edit the organisation at all", async () => {
+    await assertFails(
+      updateDoc(doc(as("tenant"), "organizations", ORG), { name: "Tenant Co" })
+    );
+  });
+});
+
+// ============================================================
+// Invitations — a credential, not a document
+// ============================================================
+
+describe("invites", () => {
+  test("org staff can list their own invitations", async () => {
+    await assertSucceeds(getDoc(doc(as("manager"), "invites", "invite-1")));
+  });
+
+  test("another org cannot read them", async () => {
+    await assertFails(getDoc(doc(as("outsider"), "invites", "invite-1")));
+  });
+
+  test("a tenant cannot read them", async () => {
+    await assertFails(getDoc(doc(as("tenant"), "invites", "invite-1")));
+  });
+
+  test("nobody can mint an invitation from the browser", async () => {
+    await assertFails(
+      setDoc(doc(as("manager"), "invites", "self-issued"), {
+        orgId: ORG, email: "friend@example.com", role: "owner", status: "pending",
+      })
+    );
+  });
+
+  test("nobody can accept one by editing it", async () => {
+    await assertFails(
+      updateDoc(doc(as("tenant"), "invites", "invite-1"), { status: "accepted" })
+    );
+  });
+});
+
+// ============================================================
+// The subscription gate
+// ============================================================
+// An organisation that has stopped paying keeps everything it has, and keeps
+// working with it. What it cannot do is take on more.
+
+describe("billing gate", () => {
+  test("a paying org can add a unit", async () => {
+    await assertSucceeds(
+      setDoc(doc(as("manager"), "units", "new-unit"), { orgId: ORG, unitNumber: "202" })
+    );
+  });
+
+  test("a cancelled org cannot add a unit", async () => {
+    await assertFails(
+      setDoc(doc(as("lapsed"), "units", "lapsed-new"), { orgId: LAPSED_ORG, unitNumber: "2" })
+    );
+  });
+
+  test("a cancelled org cannot add a property", async () => {
+    await assertFails(
+      setDoc(doc(as("lapsed"), "properties", "lapsed-prop"), { orgId: LAPSED_ORG, name: "New Block" })
+    );
+  });
+
+  test("a cancelled org can still read its own records", async () => {
+    await assertSucceeds(getDoc(doc(as("lapsed"), "units", "lapsed-unit")));
+  });
+
+  test("a cancelled org can still edit its own records", async () => {
+    await assertSucceeds(
+      updateDoc(doc(as("lapsed"), "units", "lapsed-unit"), { status: "maintenance" })
+    );
   });
 });

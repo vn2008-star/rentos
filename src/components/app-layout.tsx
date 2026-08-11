@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Building2, Home, Users, FileText, Wrench, DollarSign,
   Megaphone, ArrowLeftRight, Settings, LogOut, ChevronLeft, ChevronRight,
   Bell, Search, Plus, BedDouble, Menu, X, HardHat, BarChart3, Eye, Briefcase,
-  CalendarDays, ClipboardCheck
+  CalendarDays, ClipboardCheck, CreditCard, ShieldCheck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -40,6 +40,8 @@ const navItems = [
 ];
 
 const bottomItems = [
+  { label: "Team", href: "/team", icon: Users },
+  { label: "Billing", href: "/billing", icon: CreditCard },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -158,6 +160,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
           {/* Bottom section */}
           <div className="border-t border-sidebar-border px-3 py-3 space-y-1">
+            {/* RentOS operators only — customers never see this. */}
+            {user?.role === "super_admin" && (
+              <Link
+                href="/admin"
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                  pathname === "/admin"
+                    ? "bg-sidebar-accent text-sidebar-primary"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+                )}
+              >
+                <ShieldCheck className="h-[18px] w-[18px] shrink-0" />
+                {!collapsed && <span>RentOS Admin</span>}
+              </Link>
+            )}
             {bottomItems.map((item) => {
               const isActive = pathname === item.href;
               return (

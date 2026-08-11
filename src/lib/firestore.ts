@@ -132,6 +132,7 @@ export async function uploadMultipleFiles(
 export const Collections = {
   USERS: "users",
   ORGANIZATIONS: "organizations",
+  INVITES: "invites",
   PROPERTIES: "properties",
   UNITS: "units",
   TENANTS: "tenants",
