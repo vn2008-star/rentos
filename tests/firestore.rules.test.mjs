@@ -39,6 +39,9 @@ const PROFILES = {
   vendor2: { role: "contractor", orgId: ORG, vendorId: "vendor-2", email: "v2@example.com" },
   // Manager of an organisation that has stopped paying for RentOS.
   lapsed: { role: "manager", orgId: LAPSED_ORG, email: "lapsed@example.com" },
+  // RentOS operators. Their own org is ORG; the customer they help is OTHER_ORG.
+  operator: { role: "super_admin", orgId: ORG, email: "ops@rentos.app" },
+  operator2: { role: "super_admin", orgId: ORG, email: "ops2@rentos.app" },
   // The shared read-only identity behind "View Demo" on the marketing site.
   guest: { role: "guest", orgId: ORG, email: "demo@rentos.app" },
 };
@@ -100,6 +103,27 @@ before(async () => {
       role: "manager",
       status: "pending",
       expiresAt: "2099-01-01T00:00:00Z",
+    });
+
+    // Support grants. Real Timestamps, because the rules compare expiresAt
+    // against request.time — an ISO string there makes every check silently false.
+    const inAnHour = new Date(Date.now() + 3600_000);
+    const anHourAgo = new Date(Date.now() - 3600_000);
+
+    // Read-only access to a customer org (LAPSED_ORG stands in for one).
+    await setDoc(doc(db, "support_sessions", "operator"), {
+      adminUid: "operator", adminEmail: "ops@rentos.app",
+      orgId: LAPSED_ORG, orgName: "Lapsed Lettings",
+      reason: "Ticket 412", writeEnabled: false,
+      startedAt: new Date().toISOString(), expiresAt: inAnHour,
+    });
+
+    // An expired grant, to prove expiry is enforced rather than merely displayed.
+    await setDoc(doc(db, "support_sessions", "operator2"), {
+      adminUid: "operator2", adminEmail: "ops2@rentos.app",
+      orgId: LAPSED_ORG, orgName: "Lapsed Lettings",
+      reason: "Ticket 9", writeEnabled: true,
+      startedAt: anHourAgo.toISOString(), expiresAt: anHourAgo,
     });
 
     // Something for the lapsed org to still be able to read and edit.
@@ -727,5 +751,80 @@ describe("demo guest", () => {
     await assertFails(
       updateDoc(doc(as("guest"), "notifications", "notif-mgr"), { read: true })
     );
+  });
+});
+
+// ============================================================
+// Support access
+// ============================================================
+// A RentOS operator helping a customer. The grant is one organization at a
+// time, expiring, and read-only unless editing was explicitly asked for —
+// because the alternative, standing access to every customer, means one stolen
+// operator session exposes the whole platform.
+
+describe("support sessions", () => {
+  test("an operator with no session cannot read a customer's data", async () => {
+    // super_admin on its own grants nothing. The console reads counts through
+    // the Admin SDK, not through these rules.
+    await assertFails(getDoc(doc(as("outsider"), "units", "lapsed-unit")));
+  });
+
+  test("an operator with a live session can read that customer", async () => {
+    await assertSucceeds(getDoc(doc(as("operator"), "units", "lapsed-unit")));
+  });
+
+  test("a read-only session cannot write", async () => {
+    await assertFails(
+      updateDoc(doc(as("operator"), "units", "lapsed-unit"), { rent: 1 })
+    );
+  });
+
+  test("a session does not reach organisations it was not opened for", async () => {
+    // The grant names LAPSED_ORG; ORG is somebody else's.
+    await assertFails(getDoc(doc(as("operator"), "tenants", "tenant-1")));
+  });
+
+  test("an expired session grants nothing, even with editing enabled", async () => {
+    await assertFails(getDoc(doc(as("operator2"), "units", "lapsed-unit")));
+    await assertFails(
+      updateDoc(doc(as("operator2"), "units", "lapsed-unit"), { rent: 1 })
+    );
+  });
+
+  test("an operator cannot grant themselves a session", async () => {
+    // Issuing goes through /api/admin/support-session, which checks the role.
+    // A client that could write these could take any customer's data.
+    await assertFails(
+      setDoc(doc(as("operator"), "support_sessions", "operator"), {
+        adminUid: "operator", orgId: ORG, writeEnabled: true,
+        expiresAt: new Date(Date.now() + 3600_000),
+      })
+    );
+  });
+
+  test("an operator cannot extend or widen their own session", async () => {
+    await assertFails(
+      updateDoc(doc(as("operator"), "support_sessions", "operator"), {
+        writeEnabled: true,
+      })
+    );
+  });
+
+  test("an operator can read their own session but not another's", async () => {
+    await assertSucceeds(getDoc(doc(as("operator"), "support_sessions", "operator")));
+    await assertFails(getDoc(doc(as("operator"), "support_sessions", "operator2")));
+  });
+
+  test("the access log is not readable or writable by any client", async () => {
+    await assertFails(getDoc(doc(as("operator"), "support_audit", "anything")));
+    await assertFails(
+      setDoc(doc(as("operator"), "support_audit", "forged"), { event: "opened" })
+    );
+  });
+
+  test("an ordinary manager gets nothing from a session document", async () => {
+    // Only super_admin profiles are considered; a manager who somehow had a
+    // session document would still be refused.
+    await assertFails(getDoc(doc(as("manager"), "units", "lapsed-unit")));
   });
 });

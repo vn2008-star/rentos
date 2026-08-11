@@ -74,9 +74,43 @@ service cloud.firestore {
       return belongsToOrg(orgId) && getUserProfile().role == 'guest';
     }
 
+    // ----- Support access -----
+    //
+    // A RentOS operator helping a customer. Rather than giving super_admin
+    // standing access to every organization — where one stolen session exposes
+    // every customer on the platform — access is granted one organization at a
+    // time by a document in support_sessions, written only by the Admin SDK.
+    //
+    // The grant carries an expiry that these rules enforce against request.time,
+    // so it lapses on its own, and a writeEnabled flag so looking is the default
+    // and editing is a deliberate choice. Deleting the document revokes access
+    // immediately; it is the grant itself, not a record of one.
+    function supportSession() {
+      return get(/databases/$(database)/documents/support_sessions/$(request.auth.uid)).data;
+    }
+
+    function hasSupportSession(orgId) {
+      return hasProfile()
+             && getUserProfile().role == 'super_admin'
+             && exists(/databases/$(database)/documents/support_sessions/$(request.auth.uid))
+             && supportSession().orgId == orgId
+             && request.time < supportSession().expiresAt;
+    }
+
+    /** A support session that was opened with editing allowed. */
+    function supportCanWrite(orgId) {
+      return hasSupportSession(orgId)
+             && supportSession().get('writeEnabled', false) == true;
+    }
+
     /** Anyone entitled to look at this organization's operational records. */
     function canViewOrg(orgId) {
-      return isOrgStaff(orgId) || isOrgGuest(orgId);
+      return isOrgStaff(orgId) || isOrgGuest(orgId) || hasSupportSession(orgId);
+    }
+
+    /** Anyone entitled to change them. */
+    function canManageOrg(orgId) {
+      return isOrgStaff(orgId) || supportCanWrite(orgId);
     }
 
     // Whether the organization is still paying for RentOS.
@@ -103,9 +137,9 @@ service cloud.firestore {
              in ['trialing', 'active', 'past_due'];
     }
 
-    /** Staff of the org, and the org is entitled to grow. */
+    /** Entitled to change the org, and the org is entitled to grow. */
     function canProvision(orgId) {
-      return isOrgStaff(orgId) && subscriptionAlive(orgId);
+      return canManageOrg(orgId) && subscriptionAlive(orgId);
     }
 
     // ============================================
@@ -148,7 +182,7 @@ service cloud.firestore {
     // Organizations
     // ============================================
     match /organizations/{orgId} {
-      allow read: if belongsToOrg(orgId);
+      allow read: if belongsToOrg(orgId) || hasSupportSession(orgId);
 
       // Founding an organization goes through /api/org/create, which uses the
       // Admin SDK. Allowing it from a browser meant a signed-in user could
@@ -167,8 +201,7 @@ service cloud.firestore {
       //   ownerId  — whoever holds it cannot be removed or demoted.
       //   slug     — the public URL on their notices and signs; changing it
       //              silently breaks every link already in the world.
-      allow update: if belongsToOrg(orgId)
-                    && isOwnerOrManager()
+      allow update: if (belongsToOrg(orgId) && isOwnerOrManager() || supportCanWrite(orgId))
                     && request.resource.data.get('billing', {}) == resource.data.get('billing', {})
                     && request.resource.data.get('payouts', {}) == resource.data.get('payouts', {})
                     && request.resource.data.get('plan', '') == resource.data.get('plan', '')
@@ -186,6 +219,28 @@ service cloud.firestore {
     // invites so the team screen can list and revoke them, but no client writes
     // them — issuing, accepting and revoking all go through API routes that
     // verify the caller first. See src/app/api/invites.
+    // ============================================
+    // Support Access
+    // ============================================
+    // The live grant an operator is working under. It is the credential, so no
+    // client may write it — issuing and ending both go through
+    // /api/admin/support-session, which checks the operator's role first. An
+    // operator able to write these could grant themselves any customer's data.
+    //
+    // Readable by its own operator so the app can show what it is acting under
+    // and when that lapses.
+    match /support_sessions/{adminUid} {
+      allow read: if isSignedIn() && request.auth.uid == adminUid;
+      allow write: if false;
+    }
+
+    // The permanent record of who looked at whose data, when, and why. Written
+    // server-side, never readable or writable from a browser: an access log a
+    // client could edit is not a log.
+    match /support_audit/{entryId} {
+      allow read, write: if false;
+    }
+
     match /invites/{inviteId} {
       // Staff only, not canViewOrg: an invite's document id is the token that
       // admits its holder to the organization. A read-only demo visitor being
@@ -202,8 +257,8 @@ service cloud.firestore {
     match /properties/{propertyId} {
       allow read: if canViewOrg(resource.data.orgId);
       allow create: if canProvision(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -212,8 +267,8 @@ service cloud.firestore {
     match /units/{unitId} {
       allow read: if canViewOrg(resource.data.orgId);
       allow create: if canProvision(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -224,13 +279,13 @@ service cloud.firestore {
     // emergency contact.
     match /tenants/{tenantId} {
       allow read: if canViewOrg(resource.data.orgId) || isSelfTenant(tenantId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow create: if canManageOrg(request.resource.data.orgId);
       // A tenant may maintain their own contact details, but must not move
       // themselves between organizations.
-      allow update: if isOrgStaff(resource.data.orgId)
+      allow update: if canManageOrg(resource.data.orgId)
                     || (isSelfTenant(tenantId)
                         && request.resource.data.orgId == resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -241,8 +296,8 @@ service cloud.firestore {
       allow read: if canViewOrg(resource.data.orgId)
                   || (hasProfile() && callerTenantId() in resource.data.tenantIds);
       allow create: if canProvision(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -255,9 +310,9 @@ service cloud.firestore {
     // exists". Staff still file applications taken over the phone.
     match /applications/{appId} {
       allow read: if canViewOrg(resource.data.orgId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -274,7 +329,7 @@ service cloud.firestore {
     match /maintenance/{requestId} {
       allow read: if canViewOrg(resource.data.orgId)
                   || isSelfTenant(resource.data.get('tenantId', ''));
-      allow create: if (isOrgStaff(request.resource.data.orgId)
+      allow create: if (canManageOrg(request.resource.data.orgId)
                         || (belongsToOrg(request.resource.data.orgId)
                             && isSelfTenant(request.resource.data.get('tenantId', ''))))
                     && request.resource.data.status == 'submitted'
@@ -283,8 +338,8 @@ service cloud.firestore {
                     && request.resource.data.title.size() <= 200
                     && request.resource.data.description is string
                     && request.resource.data.description.size() <= 5000;
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -292,9 +347,9 @@ service cloud.firestore {
     // ============================================
     match /vendors/{vendorId} {
       allow read: if canViewOrg(resource.data.orgId) || isAssignedVendor(vendorId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -315,9 +370,9 @@ service cloud.firestore {
     // ============================================
     match /listings/{listingId} {
       allow read: if true;  // Public listing pages
-      allow create: if isOrgStaff(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -328,11 +383,11 @@ service cloud.firestore {
     match /sublets/{subletId} {
       allow read: if canViewOrg(resource.data.orgId)
                   || isSelfTenant(resource.data.get('tenantId', ''));
-      allow create: if isOrgStaff(request.resource.data.orgId)
+      allow create: if canManageOrg(request.resource.data.orgId)
                     || (isSelfTenant(request.resource.data.get('tenantId', ''))
                         && belongsToOrg(request.resource.data.orgId));
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -343,15 +398,15 @@ service cloud.firestore {
     match /work_orders/{workOrderId} {
       allow read: if canViewOrg(resource.data.orgId)
                   || isAssignedVendor(resource.data.vendorId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
+      allow create: if canManageOrg(request.resource.data.orgId);
       // A contractor may report progress, but must not reassign the job to
       // themselves, move it between orgs, or rewrite what it costs.
-      allow update: if isOrgStaff(resource.data.orgId)
+      allow update: if canManageOrg(resource.data.orgId)
                     || (isAssignedVendor(resource.data.vendorId)
                         && request.resource.data.vendorId == resource.data.vendorId
                         && request.resource.data.orgId == resource.data.orgId
                         && request.resource.data.get('cost', 0) == resource.data.get('cost', 0));
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -364,9 +419,9 @@ service cloud.firestore {
     match /inspections/{inspectionId} {
       allow read: if canViewOrg(resource.data.orgId)
                   || isSelfTenant(resource.data.get('tenantId', ''));
-      allow create: if isOrgStaff(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -376,15 +431,15 @@ service cloud.firestore {
     // information about the whole building. Tenants get none of it.
     match /keys/{keyId} {
       allow read: if canViewOrg(resource.data.orgId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     match /lock_changes/{changeId} {
       allow read: if canViewOrg(resource.data.orgId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId);
       // A rekey history that can be edited away is not an audit trail.
       allow delete: if false;
     }
@@ -396,9 +451,9 @@ service cloud.firestore {
     // Never readable by tenants.
     match /unit_notes/{noteId} {
       allow read: if canViewOrg(resource.data.orgId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -408,9 +463,9 @@ service cloud.firestore {
     // people will be on site.
     match /calendar_events/{eventId} {
       allow read: if canViewOrg(resource.data.orgId);
-      allow create: if isOrgStaff(request.resource.data.orgId);
-      allow update: if isOrgStaff(resource.data.orgId);
-      allow delete: if isOrgStaff(resource.data.orgId) && isOwnerOrManager();
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 
     // ============================================
@@ -431,13 +486,13 @@ service cloud.firestore {
       allow create: if false;
 
       // Only the read flag may change.
-      allow update: if (isOrgStaff(resource.data.orgId)
+      allow update: if (canManageOrg(resource.data.orgId)
                         || (resource.data.audience == 'tenant'
                             && isSelfTenant(resource.data.get('tenantId', ''))))
                     && request.resource.data.diff(resource.data).affectedKeys()
                          .hasOnly(['read']);
 
-      allow delete: if isOrgStaff(resource.data.orgId);
+      allow delete: if canManageOrg(resource.data.orgId);
     }
   }
 }

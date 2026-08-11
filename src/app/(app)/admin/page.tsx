@@ -2,16 +2,26 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { ShieldCheck, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ShieldCheck, Loader2, ExternalLink, AlertTriangle, Eye } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { authedJson } from "@/lib/api-client";
+import { useAuthStore } from "@/lib/store";
+import { useSupportSession } from "@/lib/use-support-session";
 import { PLANS } from "@/lib/plans";
 import type { PlanId } from "@/lib/types";
+import toast from "react-hot-toast";
 
 /**
  * The operator console: every organization on the platform.
@@ -42,10 +52,40 @@ const STATUS_STYLE: Record<string, string> = {
   incomplete: "bg-amber-500/15 text-amber-400 border-amber-500/30",
 };
 
+const DURATIONS = [15, 30, 60, 120];
+
 function AdminConsole() {
+  const router = useRouter();
+  // homeOrgId, not user.orgId: while a support session is open the latter points
+  // at the customer, which would label the wrong row "yours".
+  const ownOrgId = useAuthStore((s) => s.homeOrgId ?? s.user?.orgId);
+  const { start } = useSupportSession();
+
   const [orgs, setOrgs] = useState<AdminOrg[] | null>(null);
   const [error, setError] = useState("");
   const [truncated, setTruncated] = useState(false);
+
+  // The organization a support session is being opened for, if any.
+  const [target, setTarget] = useState<AdminOrg | null>(null);
+  const [reason, setReason] = useState("");
+  const [minutes, setMinutes] = useState(30);
+  const [writeEnabled, setWriteEnabled] = useState(false);
+  const [opening, setOpening] = useState(false);
+
+  const openSession = async () => {
+    if (!target) return;
+    setOpening(true);
+    try {
+      await start({ orgId: target.id, reason: reason.trim(), minutes, writeEnabled });
+      toast.success(`Viewing ${target.name}.`);
+      setTarget(null);
+      router.push("/dashboard");
+    } catch (err: any) {
+      toast.error(err?.message || "Could not open the support session.");
+    } finally {
+      setOpening(false);
+    }
+  };
 
   useEffect(() => {
     authedJson<{ orgs: AdminOrg[]; truncated: boolean }>("/api/admin/orgs")
@@ -122,6 +162,7 @@ function AdminConsole() {
                     <TableHead className="text-right">People</TableHead>
                     <TableHead>Payouts</TableHead>
                     <TableHead>Joined</TableHead>
+                    <TableHead className="text-right">Support</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -158,6 +199,20 @@ function AdminConsole() {
                       <TableCell className="text-muted-foreground">
                         {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : "—"}
                       </TableCell>
+                      <TableCell className="text-right">
+                        {o.id === ownOrgId ? (
+                          <span className="text-xs text-muted-foreground">yours</span>
+                        ) : (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            className="gap-1.5"
+                            onClick={() => { setTarget(o); setReason(""); setWriteEnabled(false); }}
+                          >
+                            <Eye className="h-3 w-3" /> View as
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -172,6 +227,82 @@ function AdminConsole() {
           </Card>
         </>
       )}
+
+      <Dialog open={target !== null} onOpenChange={(open) => !open && setTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading">
+              View {target?.name} as support
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              You will see this customer&apos;s real data. Access is logged with
+              your name and the reason below, ends when the timer runs out, and
+              is read-only unless you say otherwise.
+            </p>
+
+            <div className="space-y-2">
+              <Label>Reason</Label>
+              <Input
+                placeholder="e.g. Ticket 412 — rent payment not showing"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                disabled={opening}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Duration</Label>
+              <div className="flex gap-2">
+                {DURATIONS.map((m) => (
+                  <Button
+                    key={m}
+                    size="sm"
+                    variant={minutes === m ? "default" : "outline"}
+                    className={minutes === m ? "gradient-brand text-white border-0" : ""}
+                    onClick={() => setMinutes(m)}
+                  >
+                    {m}m
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <label className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={writeEnabled}
+                onChange={(e) => setWriteEnabled(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-amber-500"
+                disabled={opening}
+              />
+              <span>
+                <span className="font-medium text-amber-300">Allow editing</span>
+                <span className="block text-xs text-muted-foreground">
+                  Only tick this if you are fixing something for them. Changes are
+                  made under your account, not theirs.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTarget(null)} disabled={opening}>
+              Cancel
+            </Button>
+            <Button
+              className="gap-2 gradient-brand text-white border-0"
+              disabled={opening || reason.trim().length < 4}
+              onClick={openSession}
+            >
+              {opening ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+              Start session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

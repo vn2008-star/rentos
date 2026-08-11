@@ -23,6 +23,9 @@ import {
 import { useAuthStore } from "@/lib/store";
 import { useApplications, useMaintenance } from "@/lib/hooks";
 import { useOrganization } from "@/lib/use-org";
+import {
+  minutesLeft, useSupportSession, useSupportSessionWatcher,
+} from "@/lib/use-support-session";
 import { useQuickAddStore, type QuickAddTarget } from "@/lib/quick-add";
 import { NotificationBell } from "@/components/notification-bell";
 import { RentosMark } from "@/components/rentos-mark";
@@ -94,6 +97,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const requestQuickAdd = useQuickAddStore((s) => s.request);
   const isGuest = user?.role === "guest";
   const { org } = useOrganization();
+
+  // Keeps the operator's support grant in step with Firestore, and points the
+  // whole app at the customer's organization while one is open.
+  useSupportSessionWatcher();
+  const { session: supportSession, end: endSupportSession } = useSupportSession();
   const { applications } = useApplications();
   const { requests: maintenanceRequests } = useMaintenance();
 
@@ -353,6 +361,40 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               )}
             </div>
           </header>
+
+          {/* Deliberately loud, and deliberately above everything else: an
+              operator must never mistake a customer's portfolio for their own,
+              and must always be one click from leaving it. */}
+          {supportSession && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-violet-500/30 bg-violet-500/15 px-4 py-2 text-xs text-violet-200 lg:px-6">
+              <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Support session — you are viewing{" "}
+                <strong>{supportSession.orgName}</strong>
+                {supportSession.writeEnabled ? (
+                  <span className="font-semibold text-amber-300"> with editing enabled</span>
+                ) : (
+                  " (read-only)"
+                )}
+                . Expires in {minutesLeft(supportSession)} min.
+              </span>
+              <Button
+                size="xs"
+                variant="outline"
+                className="ml-auto border-violet-400/40 bg-transparent text-violet-100 hover:bg-violet-500/20"
+                onClick={async () => {
+                  try {
+                    await endSupportSession();
+                    router.push("/admin");
+                  } catch {
+                    /* the grant expires on its own regardless */
+                  }
+                }}
+              >
+                Exit
+              </Button>
+            </div>
+          )}
 
           {isGuest && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-300 lg:px-6">

@@ -16,6 +16,10 @@ export const Collections = {
   USERS: "users",
   ORGANIZATIONS: "organizations",
   INVITES: "invites",
+  /** Live support-access grants, one per operator. The rules read these. */
+  SUPPORT_SESSIONS: "support_sessions",
+  /** Immutable record of who looked at whose data, when, and why. */
+  SUPPORT_AUDIT: "support_audit",
   PROPERTIES: "properties",
   UNITS: "units",
   TENANTS: "tenants",

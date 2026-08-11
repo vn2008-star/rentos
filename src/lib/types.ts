@@ -110,6 +110,35 @@ export interface Organization {
   updatedAt?: string;
 }
 
+// ----- Support Access -----
+/**
+ * A RentOS operator's temporary access to one customer's organization.
+ *
+ * Support work sometimes needs to see what the customer sees, and occasionally
+ * to fix something for them. Granting super_admin standing access to every
+ * organization would mean one stolen session exposes every customer on the
+ * platform, so access is instead: one organization at a time, for a stated
+ * reason, expiring on its own, and read-only unless editing was asked for.
+ *
+ * The document IS the grant — security rules read it directly — so ending a
+ * session or letting it expire genuinely revokes access rather than just
+ * hiding a button.
+ */
+export interface SupportSession {
+  /** Document id is the operator's uid: one active session per operator. */
+  adminUid: string;
+  adminEmail: string;
+  orgId: string;
+  orgName: string;
+  /** Why this was opened. Required — it is what makes the audit trail useful. */
+  reason: string;
+  /** False means look, do not touch. */
+  writeEnabled: boolean;
+  startedAt: string;
+  /** Firestore Timestamp on the wire so the rules can compare it to request.time. */
+  expiresAt: string;
+}
+
 // ----- Team Invites -----
 export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
 
