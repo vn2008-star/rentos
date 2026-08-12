@@ -103,6 +103,15 @@ export interface Organization {
     lateFeeDays: number;
     /** Turns the public /o/{slug} repair and application pages on or off. */
     publicIntake?: boolean;
+    /**
+     * Whether approved sublets are published to the public sublet feed, where
+     * consumer housing sites can pick them up.
+     *
+     * Syndicating a customer's inventory to another product is their decision,
+     * not ours. Absent means yes — every org that has sublets today expects to
+     * fill them — and setting it false withdraws them.
+     */
+    subletMarketplace?: boolean;
   };
   billing?: OrgBilling;
   payouts?: OrgPayouts;

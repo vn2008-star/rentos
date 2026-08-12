@@ -24,6 +24,9 @@ import { buildRevenueHistory, summariseRevenue, isEmptyHistory } from "../src/li
 import {
   generateListingTitle, calculateDaysOnMarket, getListingStats, calculateSTRRate,
 } from "../src/lib/listing-generator";
+import {
+  projectSublet, isAdvertisable, overlaps, subletFeedDisabled,
+} from "../src/lib/public-sublets";
 import type {
   Lease, PaymentRecord, Transaction, MaintenanceRequest, Tenant, Unit, Property,
   Listing, Inspection, KeyRecord, STRPricing,
@@ -660,5 +663,159 @@ describe("buildRevenueHistory", () => {
   test("an org with nothing recorded is reported as empty, not as zero revenue", () => {
     assert.equal(isEmptyHistory(buildRevenueHistory([], 6, NOW)), true);
     assert.equal(isEmptyHistory(buildRevenueHistory([txn({})], 6, NOW)), false);
+  });
+});
+
+// ============================================================
+// The public sublet projection
+//
+// A sublet advert is somebody's home, and it says when they will not be in it.
+// These tests exist to fail if a field that names the subletter, points at
+// their door, or explains their absence ever reaches the public feed.
+// ============================================================
+
+describe("public sublet projection", () => {
+  const SUBLET = {
+    id: "sublet-1",
+    orgId: "org-1",
+    tenantId: "tenant-SECRET",
+    unitId: "unit-1",
+    propertyId: "prop-1",
+    leaseId: "lease-SECRET",
+    status: "active",
+    title: "2BR near campus — summer sublet",
+    description: "Furnished, bike storage.",
+    photos: ["a.jpg"],
+    monthlyRent: 1500,
+    startDate: "2026-06-15",
+    endDate: "2026-08-31",
+    reason: "Study abroad in Barcelona all summer",
+    submittedAt: "2026-04-01T00:00:00Z",
+    reviewedAt: "2026-04-02T00:00:00Z",
+    reviewedBy: "manager-SECRET",
+    rejectionReason: "",
+    guestInfo: {
+      name: "Kai Nakamura",
+      email: "kai.SECRET@example.com",
+      phone: "555-0101",
+      university: "UC Berkeley",
+      notes: "Summer research intern",
+    },
+    applicationIds: ["app-SECRET"],
+    createdAt: "2026-04-01T00:00:00Z",
+    updatedAt: "2026-04-02T00:00:00Z",
+  } as unknown as Parameters<typeof projectSublet>[1];
+
+  const UNIT = {
+    id: "unit-1", orgId: "org-1", propertyId: "prop-1",
+    unitNumber: "APT-207-SECRET",
+    beds: 2, baths: 1, sqft: 850, rent: 1800, deposit: 1800,
+    status: "occupied", amenities: ["Balcony"], photos: ["u.jpg"],
+    currentTenantId: "tenant-SECRET",
+  } as unknown as Parameters<typeof projectSublet>[2];
+
+  const PROPERTY = {
+    id: "prop-1", orgId: "org-1", name: "University Commons", type: "apartment",
+    address: { street: "1 Russell Blvd", city: "Davis", state: "CA", zip: "95616" },
+    amenities: ["Pool"], totalUnits: 32,
+  } as unknown as Parameters<typeof projectSublet>[3];
+
+  const ORG = {
+    id: "org-1", name: "Davis Housing Services", slug: "davis-housing-services",
+  } as unknown as Parameters<typeof projectSublet>[4];
+
+  const projected = projectSublet("sublet-1", SUBLET, UNIT, PROPERTY, ORG);
+  const serialised = JSON.stringify(projected);
+
+  test("nothing marked private survives the projection", () => {
+    // One assertion over the serialised payload rather than key-by-key: a field
+    // added to Sublet later gets caught here even though no test names it.
+    assert.equal(
+      serialised.includes("SECRET"), false,
+      `private data reached the public payload: ${serialised}`
+    );
+  });
+
+  test("the subletter is not identified", () => {
+    assert.equal("tenantId" in projected, false);
+    assert.equal("guestInfo" in projected, false);
+  });
+
+  test("the reason for the absence is withheld", () => {
+    // "Study abroad in Barcelona all summer" is an advert for an empty home.
+    assert.equal(serialised.includes("Barcelona"), false);
+    assert.equal("reason" in projected, false);
+  });
+
+  test("the building is advertised but not which door", () => {
+    assert.equal(projected.property?.name, "University Commons");
+    assert.equal(projected.property?.address.street, "1 Russell Blvd");
+    assert.equal(serialised.includes("APT-207"), false);
+  });
+
+  test("the review trail stays internal", () => {
+    assert.equal("reviewedBy" in projected, false);
+    assert.equal("rejectionReason" in projected, false);
+    assert.equal("applicationIds" in projected, false);
+  });
+
+  test("what a seeker actually needs is present", () => {
+    assert.equal(projected.title, "2BR near campus — summer sublet");
+    assert.equal(projected.monthlyRent, 1500);
+    assert.equal(projected.startDate, "2026-06-15");
+    assert.equal(projected.endDate, "2026-08-31");
+    assert.equal(projected.unit?.beds, 2);
+    assert.equal(projected.managedBy?.name, "Davis Housing Services");
+  });
+
+  test("duration is rounded to whole months", () => {
+    assert.equal(projected.months, 3);
+  });
+
+  test("a missing unit or property degrades to null, not a crash", () => {
+    const bare = projectSublet("s", SUBLET, null, null, null);
+    assert.equal(bare.unit, null);
+    assert.equal(bare.property, null);
+    assert.equal(bare.managedBy, null);
+    assert.equal(bare.title, SUBLET.title);
+  });
+});
+
+describe("sublet advertisability", () => {
+  const at = (status: string, endDate = "2026-08-31") =>
+    ({ status, endDate } as unknown as Parameters<typeof isAdvertisable>[0]);
+
+  test("only an approved sublet is advertisable", () => {
+    assert.equal(isAdvertisable(at("active"), "2026-06-01"), true);
+    for (const s of ["draft", "pending_approval", "rejected", "completed", "cancelled"]) {
+      assert.equal(isAdvertisable(at(s), "2026-06-01"), false, `${s} must not advertise`);
+    }
+  });
+
+  test("an approved sublet that has already ended is not advertisable", () => {
+    assert.equal(isAdvertisable(at("active", "2026-05-31"), "2026-06-01"), false);
+  });
+
+  test("a sublet ending today still counts", () => {
+    assert.equal(isAdvertisable(at("active", "2026-06-01"), "2026-06-01"), true);
+  });
+
+  test("date windows overlap when each starts before the other ends", () => {
+    const summer = { startDate: "2026-06-15", endDate: "2026-08-31" };
+    assert.equal(overlaps(summer, "2026-07-01", "2026-07-31"), true);  // inside
+    assert.equal(overlaps(summer, "2026-01-01", "2026-12-31"), true);  // around
+    assert.equal(overlaps(summer, "2026-08-31", "2026-09-30"), true);  // touching
+    assert.equal(overlaps(summer, "2026-09-01", "2026-09-30"), false); // after
+    assert.equal(overlaps(summer, "2026-01-01", "2026-06-14"), false); // before
+    assert.equal(overlaps(summer, null, null), true);                  // unfiltered
+  });
+
+  test("an org is in the feed unless it explicitly withdrew", () => {
+    const org = (subletMarketplace?: boolean) =>
+      ({ settings: { subletMarketplace } } as unknown as Parameters<typeof subletFeedDisabled>[0]);
+    assert.equal(subletFeedDisabled(org(undefined)), false);
+    assert.equal(subletFeedDisabled(org(true)), false);
+    assert.equal(subletFeedDisabled(org(false)), true);
+    assert.equal(subletFeedDisabled(null), false);
   });
 });
