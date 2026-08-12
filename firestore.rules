@@ -359,7 +359,8 @@ service cloud.firestore {
     // Properties (staff only)
     // ============================================
     // Tenants have no business enumerating the portfolio. Public browsing of
-    // available units happens through /listings, which is world-readable below.
+    // available units happens through /api/public/listing/{id}, which joins an
+    // advert to its unit and property server-side.
     match /properties/{propertyId} {
       allow read: if canViewOrg(resource.data.orgId);
       allow create: if canProvision(request.resource.data.orgId);
@@ -474,8 +475,17 @@ service cloud.firestore {
     // ============================================
     // Listings
     // ============================================
+    // Not world-readable, despite the advert itself being public. A listing
+    // document carries the landlord's sales pipeline alongside the advert: the
+    // `leads` array holds enquirers' names, email addresses and phone numbers,
+    // and `syndicatedTo`/`socialPosts` record where the vacancy was marketed.
+    //
+    // The public advert is served by /api/public/listing/{id}, which reads
+    // through the Admin SDK and returns only the advertised facts. Leaving the
+    // raw document world-readable handed a browser the very fields that route
+    // takes care to withhold.
     match /listings/{listingId} {
-      allow read: if true;  // Public listing pages
+      allow read: if canViewOrg(resource.data.orgId);
       allow create: if canManageOrg(request.resource.data.orgId);
       allow update: if canManageOrg(resource.data.orgId);
       allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();

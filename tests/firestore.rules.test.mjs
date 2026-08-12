@@ -140,6 +140,21 @@ before(async () => {
     await setDoc(doc(db, "lock_changes", "lock-1"), { orgId: ORG, unitId: "unit-1", reason: "turnover" });
     await setDoc(doc(db, "unit_notes", "note-1"), { orgId: ORG, unitId: "unit-1", body: "Noise complaint" });
     await setDoc(doc(db, "calendar_events", "cal-1"), { orgId: ORG, type: "showing", title: "Showing" });
+    // The advert is public, but the document wrapped around it is not: `leads`
+    // is the landlord's enquiry pipeline, with contact details attached.
+    await setDoc(doc(db, "listings", "listing-1"), {
+      orgId: ORG,
+      unitId: "unit-1",
+      propertyId: "prop-1",
+      title: "2BR near campus",
+      rent: 1800,
+      status: "active",
+      syndicatedTo: ["zillow"],
+      leads: [{
+        name: "Mei Tanaka", email: "mei@example.com", phone: "555-0101",
+        source: "web", createdAt: "2026-08-01T00:00:00Z",
+      }],
+    });
     await setDoc(doc(db, "notifications", "notif-mgr"), { orgId: ORG, audience: "manager", read: false, title: "Rent received" });
     await setDoc(doc(db, "notifications", "notif-t1"), { orgId: ORG, audience: "tenant", tenantId: "tenant-1", read: false, title: "Payment failed" });
   });
@@ -388,6 +403,48 @@ describe("staff-only collections", () => {
 
   test("a rekey history cannot be deleted, even by a manager", async () => {
     await assertFails(deleteDoc(doc(as("manager"), "lock_changes", "lock-1")));
+  });
+});
+
+// ============================================================
+// Listings — a public advert wrapped around a private pipeline
+// ============================================================
+
+describe("listings", () => {
+  test("staff can read their own org's listing", async () => {
+    await assertSucceeds(getDoc(doc(as("manager"), "listings", "listing-1")));
+  });
+
+  // The advert is public; the document is not. Browsers get the advertised
+  // facts from /api/public/listing/{id}, which reads through the Admin SDK and
+  // leaves `leads` and the syndication history behind. Reading the raw document
+  // would return every enquirer's name, email address and phone number.
+  test("an anonymous visitor cannot read the raw listing document", async () => {
+    await assertFails(getDoc(doc(anon(), "listings", "listing-1")));
+  });
+
+  test("another org cannot read the listing", async () => {
+    await assertFails(getDoc(doc(as("outsider"), "listings", "listing-1")));
+  });
+
+  test("a tenant cannot harvest the lead pipeline", async () => {
+    await assertFails(getDoc(doc(as("tenant"), "listings", "listing-1")));
+  });
+
+  test("the demo guest can still read listings", async () => {
+    await assertSucceeds(getDoc(doc(as("guest"), "listings", "listing-1")));
+  });
+
+  test("an anonymous visitor cannot append themselves as a lead", async () => {
+    await assertFails(updateDoc(doc(anon(), "listings", "listing-1"), { leads: [] }));
+  });
+
+  test("another org cannot edit the listing", async () => {
+    await assertFails(updateDoc(doc(as("outsider"), "listings", "listing-1"), { rent: 1 }));
+  });
+
+  test("staff can edit their own listing", async () => {
+    await assertSucceeds(updateDoc(doc(as("manager"), "listings", "listing-1"), { rent: 1850 }));
   });
 });
 
