@@ -496,13 +496,34 @@ service cloud.firestore {
     // ============================================
     // Tenants create sublets for their own unit from /portal/sublet; managers
     // administer them from /sublets.
+    //
+    // Most leases forbid subletting without the landlord's consent, so a
+    // tenant's listing waits at pending_approval until the org clears it. That
+    // gate is enforced here rather than in the page: a tenant who could file
+    // their own listing as `active`, or promote it later, would be granting
+    // themselves the very consent the review step exists to obtain.
     match /sublets/{subletId} {
       allow read: if canViewOrg(resource.data.orgId)
                   || viewsAsTenant(resource.data.get('tenantId', ''));
       allow create: if canManageOrg(request.resource.data.orgId)
                     || (isSelfTenant(request.resource.data.get('tenantId', ''))
-                        && belongsToOrg(request.resource.data.orgId));
-      allow update: if canManageOrg(resource.data.orgId);
+                        && belongsToOrg(request.resource.data.orgId)
+                        && request.resource.data.status in ['draft', 'pending_approval']);
+      // A tenant may revise a listing that is not yet live, and may withdraw one
+      // either way — but only staff move a sublet to active or rejected, and
+      // only staff write the review trail that says who decided and why.
+      allow update: if canManageOrg(resource.data.orgId)
+                    || (isSelfTenant(resource.data.get('tenantId', ''))
+                        && request.resource.data.tenantId == resource.data.tenantId
+                        && request.resource.data.orgId == resource.data.orgId
+                        && !request.resource.data.diff(resource.data).affectedKeys()
+                             .hasAny(['reviewedAt', 'reviewedBy', 'rejectionReason'])
+                        && (
+                             (resource.data.status in ['draft', 'pending_approval']
+                              && request.resource.data.status in ['draft', 'pending_approval', 'cancelled'])
+                             || (resource.data.status == 'active'
+                                 && request.resource.data.status == 'cancelled')
+                           ));
       allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
     }
 

@@ -75,6 +75,26 @@ before(async () => {
     }
     await setDoc(doc(db, "work_orders", "wo-1"), WORK_ORDER);
     await setDoc(doc(db, "sublets", "sublet-1"), SUBLET);
+    // A listing waiting on the landlord's consent, and one already refused.
+    await setDoc(doc(db, "sublets", "sublet-pending"), {
+      orgId: ORG, tenantId: "tenant-1", status: "pending_approval",
+      title: "Summer sublet — Jun to Aug", submittedAt: "2026-04-01T00:00:00Z",
+    });
+    await setDoc(doc(db, "sublets", "sublet-rejected"), {
+      orgId: ORG, tenantId: "tenant-1", status: "rejected",
+      title: "Sublet past lease end", rejectionReason: "Runs past your lease.",
+    });
+    // Separate documents for the tests that write, so a successful withdrawal
+    // cannot change the answer a later test is asserting about.
+    await setDoc(doc(db, "sublets", "sublet-withdraw-pending"), {
+      orgId: ORG, tenantId: "tenant-1", status: "pending_approval", title: "To withdraw",
+    });
+    await setDoc(doc(db, "sublets", "sublet-withdraw-active"), {
+      orgId: ORG, tenantId: "tenant-1", status: "active", title: "Live, to withdraw",
+    });
+    await setDoc(doc(db, "sublets", "sublet-to-approve"), {
+      orgId: ORG, tenantId: "tenant-1", status: "pending_approval", title: "For the manager",
+    });
 
     // The org must exist: several create rules check it, and the users rule
     // uses its absence to decide whether someone is founding a new org.
@@ -230,6 +250,121 @@ describe("sublets", () => {
 
   test("tenant cannot delete (owner/manager only)", async () => {
     await assertFails(deleteDoc(doc(as("tenant"), "sublets", "sublet-1")));
+  });
+});
+
+// ============================================================
+// The sublet approval gate
+//
+// A lease that forbids subletting without the landlord's consent makes the
+// review step the whole point: a tenant who could publish their own listing
+// would be granting themselves that consent.
+// ============================================================
+
+describe("sublet approval", () => {
+  const draft = (status) => ({
+    orgId: ORG, tenantId: "tenant-1", status,
+    title: "Summer sublet", monthlyRent: 1500,
+  });
+
+  test("a tenant can submit their own listing for review", async () => {
+    await assertSucceeds(
+      setDoc(doc(as("tenant"), "sublets", "new-pending"), draft("pending_approval"))
+    );
+  });
+
+  test("a tenant can save their own listing as a draft", async () => {
+    await assertSucceeds(
+      setDoc(doc(as("tenant"), "sublets", "new-draft"), draft("draft"))
+    );
+  });
+
+  test("a tenant cannot publish their own listing outright", async () => {
+    await assertFails(
+      setDoc(doc(as("tenant"), "sublets", "new-active"), draft("active"))
+    );
+  });
+
+  test("a tenant cannot file a listing against another tenant's unit", async () => {
+    await assertFails(
+      setDoc(doc(as("tenant2"), "sublets", "new-other"), draft("pending_approval"))
+    );
+  });
+
+  test("a manager's own listing goes live immediately — they are the consent", async () => {
+    await assertSucceeds(
+      setDoc(doc(as("manager"), "sublets", "new-mgr"), draft("active"))
+    );
+  });
+
+  test("a tenant cannot approve their own pending listing", async () => {
+    await assertFails(
+      updateDoc(doc(as("tenant"), "sublets", "sublet-pending"), { status: "active" })
+    );
+  });
+
+  test("a tenant cannot revive a listing the org rejected", async () => {
+    await assertFails(
+      updateDoc(doc(as("tenant"), "sublets", "sublet-rejected"), { status: "pending_approval" })
+    );
+  });
+
+  test("a tenant cannot forge the review trail", async () => {
+    await assertFails(
+      updateDoc(doc(as("tenant"), "sublets", "sublet-pending"), {
+        reviewedBy: "manager", reviewedAt: "2026-04-02T00:00:00Z",
+      })
+    );
+  });
+
+  test("a tenant cannot rewrite the reason they were turned down", async () => {
+    await assertFails(
+      updateDoc(doc(as("tenant"), "sublets", "sublet-rejected"), { rejectionReason: "" })
+    );
+  });
+
+  test("a tenant cannot hand their listing to another tenant", async () => {
+    await assertFails(
+      updateDoc(doc(as("tenant"), "sublets", "sublet-pending"), { tenantId: "tenant-2" })
+    );
+  });
+
+  test("a different tenant cannot touch someone else's listing", async () => {
+    await assertFails(
+      updateDoc(doc(as("tenant2"), "sublets", "sublet-pending"), { status: "cancelled" })
+    );
+  });
+
+  test("a tenant can edit a listing that is still waiting", async () => {
+    await assertSucceeds(
+      updateDoc(doc(as("tenant"), "sublets", "sublet-pending"), { monthlyRent: 1400 })
+    );
+  });
+
+  test("a tenant can withdraw a listing that is waiting", async () => {
+    await assertSucceeds(
+      updateDoc(doc(as("tenant"), "sublets", "sublet-withdraw-pending"), { status: "cancelled" })
+    );
+  });
+
+  test("a tenant can withdraw a listing that is already live", async () => {
+    await assertSucceeds(
+      updateDoc(doc(as("tenant"), "sublets", "sublet-withdraw-active"), { status: "cancelled" })
+    );
+  });
+
+  test("a manager can approve, and record who decided", async () => {
+    await assertSucceeds(
+      updateDoc(doc(as("manager"), "sublets", "sublet-to-approve"), {
+        status: "active", reviewedBy: "manager", reviewedAt: "2026-04-02T00:00:00Z",
+      })
+    );
+  });
+
+  test("another org cannot approve", async () => {
+    await assertFails(
+      updateDoc(doc(as("outsider"), "sublets", "sublet-pending"), { status: "active" })
+    );
   });
 });
 

@@ -750,7 +750,26 @@ export interface Listing {
 }
 
 // ----- Sublets -----
-export type SubletStatus = "draft" | "active" | "completed" | "cancelled";
+/**
+ * A sublet's life, from a tenant writing it to a guest moving in.
+ *
+ *   draft → pending_approval → active → completed
+ *                    ↓
+ *                rejected
+ *
+ * The review step exists because most leases forbid subletting without the
+ * landlord's consent. A listing that goes live unreviewed can get the tenant
+ * evicted for the thing the app encouraged them to do, so the org sees it
+ * first. A manager creating a sublet on a tenant's behalf *is* the consent,
+ * and skips straight to active.
+ */
+export type SubletStatus =
+  | "draft"
+  | "pending_approval"
+  | "active"
+  | "rejected"
+  | "completed"
+  | "cancelled";
 
 export interface Sublet {
   id: string;
@@ -767,6 +786,16 @@ export interface Sublet {
   startDate: string;
   endDate: string;
   reason?: string;
+  /** When the tenant sent it for review. */
+  submittedAt?: string;
+  /** When a manager approved or rejected it, and who did. */
+  reviewedAt?: string;
+  reviewedBy?: string;
+  /**
+   * Why the org turned it down. Shown to the tenant — a rejection they cannot
+   * see the reason for is one they will just submit again unchanged.
+   */
+  rejectionReason?: string;
   guestInfo?: {
     name: string;
     email: string;

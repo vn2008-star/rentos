@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import {
   ArrowLeftRight, Calendar, Globe, Users, Plus, Search,
-  Eye, Clock, CheckCircle2, Edit2, Trash2, MoreHorizontal,
+  Eye, Clock, CheckCircle2, XCircle, Edit2, Trash2, MoreHorizontal,
   Sun, GraduationCap, Briefcase, MapPin, Mail, Phone,
   Wifi, WifiOff, ExternalLink,
 } from "lucide-react";
@@ -24,18 +24,22 @@ import toast from "react-hot-toast";
 
 const statusConfig: Record<string, { label: string; color: string }> = {
   draft: { label: "Draft", color: "text-slate-400 bg-slate-500/15 border-slate-500/30" },
+  pending_approval: { label: "Needs review", color: "text-amber-400 bg-amber-500/15 border-amber-500/30" },
   active: { label: "Active", color: "text-emerald-400 bg-emerald-500/15 border-emerald-500/30" },
+  rejected: { label: "Rejected", color: "text-red-400 bg-red-500/15 border-red-500/30" },
   completed: { label: "Completed", color: "text-blue-400 bg-blue-500/15 border-blue-500/30" },
-  cancelled: { label: "Cancelled", color: "text-red-400 bg-red-500/15 border-red-500/30" },
+  cancelled: { label: "Cancelled", color: "text-slate-400 bg-slate-500/15 border-slate-500/30" },
 };
 
 export default function SubletsPage() {
-  const { sublets, loading, isLive, addSublet, updateSublet, removeSublet } = useSublets();
+  const { sublets, loading, isLive, addSublet, updateSublet, removeSublet, approveSublet, rejectSublet } = useSublets();
   const { units } = useUnits();
   const { properties } = useProperties();
   const { tenants } = useTenants();
   const [showCreate, setShowCreate] = useState(false);
   const [showDetail, setShowDetail] = useState<Sublet | null>(null);
+  const [rejecting, setRejecting] = useState<Sublet | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -46,9 +50,16 @@ export default function SubletsPage() {
   const activeSublets = sublets.filter(s => s.status === "active");
   const draftSublets = sublets.filter(s => s.status === "draft");
   const completedSublets = sublets.filter(s => s.status === "completed");
+  // Tenants waiting on the org. Oldest first — the person who submitted a week
+  // ago is the one whose summer plans are held up.
+  const pendingSublets = sublets
+    .filter(s => s.status === "pending_approval")
+    .sort((a, b) => (a.submittedAt || a.createdAt).localeCompare(b.submittedAt || b.createdAt));
 
-  // Determine current season
-  const now = new Date();
+  // Read the clock once per mount. Deriving a value from it during render makes
+  // the component non-idempotent, and neither the season nor a "waiting N days"
+  // count needs to tick while someone is looking at the page.
+  const [now] = useState(() => new Date());
   const month = now.getMonth();
   const season = month >= 5 && month <= 7 ? "Summer" : month >= 2 && month <= 4 ? "Spring" : month >= 8 && month <= 10 ? "Fall" : "Winter";
   const year = now.getFullYear();
@@ -92,6 +103,30 @@ export default function SubletsPage() {
     await updateSublet(sublet.id, { status: "completed" });
     toast.success("Sublet marked as completed! ✅");
     setShowDetail(null);
+  };
+
+  const handleApprove = async (sublet: Sublet) => {
+    try {
+      await approveSublet(sublet.id);
+      toast.success("Approved — the listing is live");
+      setShowDetail(null);
+    } catch { toast.error("Couldn't approve the sublet"); }
+  };
+
+  const handleReject = async () => {
+    if (!rejecting) return;
+    // A rejection with no reason is one the tenant will just resubmit unchanged.
+    if (!rejectReason.trim()) {
+      toast.error("Give the tenant a reason");
+      return;
+    }
+    try {
+      await rejectSublet(rejecting.id, rejectReason.trim());
+      toast.success("Rejected — the tenant can see why");
+      setRejecting(null);
+      setRejectReason("");
+      setShowDetail(null);
+    } catch { toast.error("Couldn't reject the sublet"); }
   };
 
   const renderSubletCard = (sublet: Sublet) => {
@@ -144,7 +179,7 @@ export default function SubletsPage() {
           )}
 
           {sublet.reason && (
-            <p className="text-[11px] text-muted-foreground italic">"{sublet.reason}"</p>
+            <p className="text-[11px] text-muted-foreground italic">&ldquo;{sublet.reason}&rdquo;</p>
           )}
         </CardContent>
       </Card>
@@ -195,6 +230,68 @@ export default function SubletsPage() {
         </Card>
       </div>
 
+      {/* Review queue — tenants waiting on a decision. Kept above the tabs
+          because a sublet sitting unreviewed is somebody's summer on hold. */}
+      {pendingSublets.length > 0 && (
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-heading flex items-center gap-2">
+              <Clock className="h-4 w-4 text-amber-400" />
+              {pendingSublets.length} sublet{pendingSublets.length !== 1 ? "s" : ""} waiting for your approval
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Tenants can&apos;t advertise their room until you approve it. Most leases require your
+              consent, so this is the step that keeps them from breaking theirs.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2 pt-0">
+            {pendingSublets.map(sublet => {
+              const unit = units.find(u => u.id === sublet.unitId);
+              const tenant = tenants.find(t => t.id === sublet.tenantId);
+              const waitingSince = sublet.submittedAt || sublet.createdAt;
+              const daysWaiting = Math.floor(
+                (now.getTime() - new Date(waitingSince).getTime()) / (1000 * 60 * 60 * 24)
+              );
+
+              return (
+                <div
+                  key={sublet.id}
+                  className="flex flex-col gap-3 rounded-lg border border-border/50 bg-card/50 p-3 sm:flex-row sm:items-center"
+                >
+                  <button
+                    className="flex-1 min-w-0 text-left"
+                    onClick={() => setShowDetail(sublet)}
+                  >
+                    <p className="text-sm font-medium truncate">{sublet.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {tenant?.firstName} {tenant?.lastName}
+                      {unit && ` · Unit ${unit.unitNumber}`}
+                      {" · "}${sublet.monthlyRent.toLocaleString()}/mo
+                      {" · "}{sublet.startDate} — {sublet.endDate}
+                    </p>
+                    <p className="text-[11px] text-amber-400/80 mt-0.5">
+                      {daysWaiting < 1 ? "Submitted today" : `Waiting ${daysWaiting} day${daysWaiting === 1 ? "" : "s"}`}
+                    </p>
+                  </button>
+                  <div className="flex gap-2 shrink-0">
+                    <Button size="sm" onClick={() => handleApprove(sublet)} className="gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                    </Button>
+                    <Button
+                      size="sm" variant="outline"
+                      className="gap-1.5 text-destructive"
+                      onClick={() => { setRejecting(sublet); setRejectReason(""); }}
+                    >
+                      <XCircle className="h-3.5 w-3.5" /> Reject
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Search */}
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -205,11 +302,12 @@ export default function SubletsPage() {
       <Tabs defaultValue="all">
         <TabsList>
           <TabsTrigger value="all">All ({sublets.length})</TabsTrigger>
+          <TabsTrigger value="pending_approval">Needs review ({pendingSublets.length})</TabsTrigger>
           <TabsTrigger value="active">Active ({activeSublets.length})</TabsTrigger>
           <TabsTrigger value="draft">Draft ({draftSublets.length})</TabsTrigger>
           <TabsTrigger value="completed">Completed ({completedSublets.length})</TabsTrigger>
         </TabsList>
-        {["all", "active", "draft", "completed"].map(tab => (
+        {["all", "pending_approval", "active", "draft", "completed"].map(tab => (
           <TabsContent key={tab} value={tab} className="mt-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {filtered.filter(s => tab === "all" || s.status === tab).map(renderSubletCard)}
@@ -319,8 +417,29 @@ export default function SubletsPage() {
                     </div>
                   )}
 
+                  {sublet.status === "rejected" && sublet.rejectionReason && (
+                    <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+                      <p className="text-xs font-medium">Rejected</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{sublet.rejectionReason}</p>
+                    </div>
+                  )}
+
                   {/* Actions */}
                   <div className="flex gap-2 flex-wrap">
+                    {sublet.status === "pending_approval" && (
+                      <>
+                        <Button size="sm" onClick={() => handleApprove(sublet)} className="gradient-brand text-white border-0 gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                        </Button>
+                        <Button
+                          size="sm" variant="outline"
+                          className="gap-1.5 text-destructive"
+                          onClick={() => { setRejecting(sublet); setRejectReason(""); }}
+                        >
+                          <XCircle className="h-3.5 w-3.5" /> Reject
+                        </Button>
+                      </>
+                    )}
                     {sublet.status === "draft" && (
                       <Button size="sm" onClick={() => handleActivate(sublet)} className="gradient-brand text-white border-0 gap-1.5">
                         <Globe className="h-3.5 w-3.5" /> Publish
@@ -341,6 +460,34 @@ export default function SubletsPage() {
           })()}
         </SheetContent>
       </Sheet>
+
+      {/* Reject Dialog */}
+      <Dialog open={!!rejecting} onOpenChange={(open) => { if (!open) { setRejecting(null); setRejectReason(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Reject this sublet</DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              The tenant sees this reason on their portal. Tell them what would make it acceptable —
+              otherwise they will submit the same listing again.
+            </p>
+          </DialogHeader>
+          <div className="py-4">
+            <Label>Reason</Label>
+            <Textarea
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              rows={3}
+              placeholder="e.g. Your lease runs to 31 Aug — a sublet ending in September needs a lease extension first."
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejecting(null); setRejectReason(""); }}>Cancel</Button>
+            <Button onClick={handleReject} disabled={!rejectReason.trim()} className="bg-destructive text-white border-0 hover:bg-destructive/90">
+              Reject listing
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -651,13 +651,18 @@ export function useSublets() {
     startDate: string; endDate: string; reason?: string; photos?: string[];
   }) => {
     const orgId = user?.orgId || "org-1";
+    // A tenant listing their own room needs the landlord's consent first —
+    // most leases require it, and a listing that goes live unreviewed can get
+    // them evicted. A manager creating one is that consent, so it goes live.
+    const needsReview = user?.role === "tenant";
     const sublet: Omit<Sublet, "id" | "createdAt" | "updatedAt"> = {
       orgId,
       tenantId: input.tenantId,
       unitId: input.unitId,
       propertyId: input.propertyId,
       leaseId: input.leaseId,
-      status: "active", // Free listing — no approval required
+      status: needsReview ? "pending_approval" : "active",
+      ...(needsReview ? { submittedAt: new Date().toISOString() } : {}),
       title: input.title,
       description: input.description,
       photos: input.photos || [],
@@ -692,7 +697,30 @@ export function useSublets() {
     setSublets(prev => prev.filter(s => s.id !== id));
   }, [setSublets]);
 
-  return { sublets, loading, isLive, addSublet, updateSublet, removeSublet };
+  const approveSublet = useCallback(async (id: string) => {
+    await updateSublet(id, {
+      status: "active",
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: user?.id || "",
+      // Cleared rather than left behind: an approved listing showing why it was
+      // once turned down reads as a rejection that somehow went live.
+      rejectionReason: "",
+    });
+  }, [updateSublet, user?.id]);
+
+  const rejectSublet = useCallback(async (id: string, rejectionReason: string) => {
+    await updateSublet(id, {
+      status: "rejected",
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: user?.id || "",
+      rejectionReason,
+    });
+  }, [updateSublet, user?.id]);
+
+  return {
+    sublets, loading, isLive,
+    addSublet, updateSublet, removeSublet, approveSublet, rejectSublet,
+  };
 }
 
 // ============================================
