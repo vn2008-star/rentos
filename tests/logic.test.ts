@@ -27,6 +27,7 @@ import {
 import {
   projectSublet, isAdvertisable, overlaps, subletFeedDisabled,
 } from "../src/lib/public-sublets";
+import { defaultLeaseTerm, checkMoveIn } from "../src/lib/move-in";
 import type {
   Lease, PaymentRecord, Transaction, MaintenanceRequest, Tenant, Unit, Property,
   Listing, Inspection, KeyRecord, STRPricing,
@@ -817,5 +818,155 @@ describe("sublet advertisability", () => {
     assert.equal(subletFeedDisabled(org(true)), false);
     assert.equal(subletFeedDisabled(org(false)), true);
     assert.equal(subletFeedDisabled(null), false);
+  });
+});
+
+// ============================================================
+// Move-in — turning an approved application into a tenancy
+// ============================================================
+
+describe("defaultLeaseTerm", () => {
+  test("a twelve-month term ends the day before its anniversary", () => {
+    // 1 Sep to 1 Sep would overlap itself at both ends, and the renewal then
+    // looks like two tenancies on one unit.
+    assert.deepEqual(defaultLeaseTerm("2026-09-01"), {
+      startDate: "2026-09-01", endDate: "2027-08-31",
+    });
+  });
+
+  test("a leap day start does not fall out of the calendar", () => {
+    assert.equal(defaultLeaseTerm("2028-02-29").endDate, "2029-02-28");
+  });
+
+  test("a missing or malformed date falls back to today rather than NaN", () => {
+    const term = defaultLeaseTerm("not-a-date");
+    assert.match(term.startDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.match(term.endDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(term.endDate > term.startDate);
+  });
+});
+
+describe("checkMoveIn", () => {
+  const ORG_ID = "org-1";
+
+  const application = (over: Record<string, unknown> = {}) => ({
+    id: "app-1", orgId: ORG_ID, unitId: "unit-1", propertyId: "prop-1",
+    status: "approved",
+    applicant: {
+      firstName: "Mei", lastName: "Tanaka", email: "mei@example.com",
+      phone: "555-0101", currentAddress: "", employer: "", income: 40000,
+      moveInDate: "2026-09-01",
+    },
+    references: [], createdAt: "", updatedAt: "",
+    ...over,
+  }) as unknown as Parameters<typeof checkMoveIn>[0]["application"];
+
+  const vacantUnit = (over: Record<string, unknown> = {}) =>
+    unit({ id: "unit-1", orgId: ORG_ID, status: "available", ...over });
+
+  const payingOrg = (status?: string) =>
+    ({ id: ORG_ID, billing: status ? { status } : undefined }) as unknown as
+      Parameters<typeof checkMoveIn>[0]["org"];
+
+  const request = (over: Partial<Parameters<typeof checkMoveIn>[0]["request"]> = {}) => ({
+    applicationId: "app-1",
+    startDate: "2026-09-01", endDate: "2027-08-31",
+    rentAmount: 1800, securityDeposit: 1800,
+    ...over,
+  });
+
+  const check = (over: Record<string, unknown> = {}) => checkMoveIn({
+    request: request(),
+    application: application(),
+    unit: vacantUnit(),
+    org: payingOrg("active"),
+    callerOrgId: ORG_ID,
+    ...over,
+  });
+
+  test("an approved application on a vacant unit passes", () => {
+    assert.deepEqual(check(), { ok: true });
+  });
+
+  test("another org's application is not found, not forbidden", () => {
+    // 403 would confirm it exists. Nothing about another org's applicants
+    // should be discoverable by guessing ids.
+    const result = check({ application: application({ orgId: "org-2" }) });
+    assert.equal(result.ok, false);
+    assert.equal(result.ok === false && result.status, 404);
+  });
+
+  test("a unit belonging to another org is not found either", () => {
+    const result = check({ unit: vacantUnit({ orgId: "org-2" }) });
+    assert.equal(result.ok === false && result.status, 404);
+  });
+
+  test("an application that was never approved cannot move anyone in", () => {
+    for (const status of ["submitted", "reviewing", "screening", "denied", "withdrawn"]) {
+      const result = check({ application: application({ status }) });
+      assert.equal(result.ok, false, `${status} must not move in`);
+      assert.equal(result.ok === false && result.status, 409);
+    }
+  });
+
+  test("an application already converted cannot be converted again", () => {
+    const result = check({ application: application({ leaseId: "lease-9" }) });
+    assert.equal(result.ok === false && result.status, 409);
+    const byTenant = check({ application: application({ tenantId: "tenant-9" }) });
+    assert.equal(byTenant.ok === false && byTenant.status, 409);
+  });
+
+  test("an occupied unit cannot take a second tenancy", () => {
+    const result = check({ unit: vacantUnit({ status: "occupied" }) });
+    assert.equal(result.ok === false && result.status, 409);
+  });
+
+  test("a lapsed subscription blocks the write the rules would have blocked", () => {
+    // The Admin SDK bypasses canProvision(), so this is the only thing standing
+    // between a cancelled org and an unlimited supply of new leases.
+    for (const status of ["canceled", "incomplete"]) {
+      const result = check({ org: payingOrg(status) });
+      assert.equal(result.ok === false && result.status, 402, `${status} must be refused`);
+    }
+  });
+
+  test("trialing, active and past_due orgs may still move people in", () => {
+    for (const status of ["trialing", "active", "past_due"]) {
+      assert.deepEqual(check({ org: payingOrg(status) }), { ok: true }, status);
+    }
+    // An org with no billing record at all reads as trialing, matching the rules.
+    assert.deepEqual(check({ org: payingOrg() }), { ok: true });
+  });
+
+  test("a lease must end after it starts", () => {
+    const same = check({ request: request({ endDate: "2026-09-01" }) });
+    assert.equal(same.ok === false && same.status, 400);
+    const backwards = check({ request: request({ endDate: "2026-08-01" }) });
+    assert.equal(backwards.ok === false && backwards.status, 400);
+  });
+
+  test("dates have to be dates", () => {
+    const result = check({ request: request({ startDate: "1 September" }) });
+    assert.equal(result.ok === false && result.status, 400);
+  });
+
+  test("rent and deposit have to be real amounts", () => {
+    for (const bad of [-1, Number.NaN, 2_000_000]) {
+      assert.equal(
+        check({ request: request({ rentAmount: bad }) }).ok, false,
+        `rent ${bad} must be refused`
+      );
+      assert.equal(
+        check({ request: request({ securityDeposit: bad }) }).ok, false,
+        `deposit ${bad} must be refused`
+      );
+    }
+    // Zero deposit is a real policy, not an error.
+    assert.deepEqual(check({ request: request({ securityDeposit: 0 }) }), { ok: true });
+  });
+
+  test("a missing application or unit refuses rather than throwing", () => {
+    assert.equal(check({ application: null }).ok, false);
+    assert.equal(check({ unit: null }).ok, false);
   });
 });

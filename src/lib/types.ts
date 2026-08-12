@@ -427,6 +427,17 @@ export interface RentalApplication {
   decision?: string;
   notes?: string;
   applicationFee?: number;
+  /**
+   * Set when the application was turned into a tenancy.
+   *
+   * Approving an applicant and moving them in are different acts — an approval
+   * can sit for a week while they decide. These record that the second one
+   * happened, and their presence is what stops a second move-in creating a
+   * duplicate tenant on the same unit.
+   */
+  tenantId?: string;
+  leaseId?: string;
+  movedInAt?: string;
   createdAt: string;
   updatedAt: string;
 }

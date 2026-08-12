@@ -14,6 +14,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Textarea } from "@/components/ui/textarea";
 import { useApplications, useProperties, useUnits } from "@/lib/hooks";
 import { runScreening, getScoreInfo, getCreditScoreColor } from "@/lib/screening";
+import { authedJson } from "@/lib/api-client";
+import { defaultLeaseTerm } from "@/lib/move-in";
 import type { RentalApplication, ApplicationStatus, ScreeningResult } from "@/lib/types";
 import toast from "react-hot-toast";
 
@@ -36,6 +38,11 @@ export default function ApplicationsPage() {
   const [screening, setScreening] = useState(false);
   const [screeningResult, setScreeningResult] = useState<ScreeningResult | null>(null);
   const [saving, setSaving] = useState(false);
+  const [movingIn, setMovingIn] = useState<RentalApplication | null>(null);
+  const [movingInSaving, setMovingInSaving] = useState(false);
+  const [moveInForm, setMoveInForm] = useState({
+    startDate: "", endDate: "", rentAmount: "", securityDeposit: "",
+  });
   const [form, setForm] = useState({
     firstName: "", lastName: "", email: "", phone: "",
     currentAddress: "", employer: "", income: "",
@@ -102,6 +109,56 @@ export default function ApplicationsPage() {
     });
     setScreening(false);
     toast.success("Screening complete");
+  };
+
+  /**
+   * Opens the move-in dialog, prefilled from the unit and the date the
+   * applicant asked for. The manager should be confirming numbers the system
+   * already knows, not retyping them off the application.
+   */
+  const openMoveIn = (app: RentalApplication) => {
+    const unit = units.find(u => u.id === app.unitId);
+    const term = defaultLeaseTerm(app.applicant.moveInDate);
+    setMoveInForm({
+      startDate: term.startDate,
+      endDate: term.endDate,
+      rentAmount: String(unit?.rent ?? ""),
+      securityDeposit: String(unit?.deposit ?? unit?.rent ?? ""),
+    });
+    setMovingIn(app);
+  };
+
+  const handleMoveIn = async () => {
+    if (!movingIn) return;
+    setMovingInSaving(true);
+    try {
+      const tenancy = await authedJson<{ tenantId: string; leaseId: string }>(
+        "/api/applications/move-in",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            applicationId: movingIn.id,
+            startDate: moveInForm.startDate,
+            endDate: moveInForm.endDate,
+            rentAmount: Number(moveInForm.rentAmount),
+            securityDeposit: Number(moveInForm.securityDeposit),
+          }),
+        }
+      );
+      toast.success("Moved in — tenant, lease and unit are all set");
+      // The live subscription refreshes the list; the open sheet is stale until
+      // it does, and showing "Move in" again would invite a duplicate attempt.
+      setSelectedApp(prev =>
+        prev && prev.id === movingIn.id ? { ...prev, ...tenancy } : prev
+      );
+      setMovingIn(null);
+    } catch (err) {
+      // The route's own message is the useful one — "that unit is already
+      // occupied" beats "request failed".
+      toast.error(err instanceof Error ? err.message : "Could not complete the move-in");
+    } finally {
+      setMovingInSaving(false);
+    }
   };
 
   const handleDecision = async (app: RentalApplication, decision: "approved" | "denied") => {
@@ -327,6 +384,30 @@ export default function ApplicationsPage() {
                       </Button>
                     </div>
                   )}
+                  {selectedApp.status === "approved" && !selectedApp.leaseId && (
+                    <>
+                      <Button
+                        className="w-full gradient-brand text-white border-0"
+                        onClick={() => openMoveIn(selectedApp)}
+                      >
+                        <UserCheck className="h-4 w-4 mr-2" /> Move In
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground text-center">
+                        Creates the tenant and lease, and marks the unit occupied.
+                      </p>
+                    </>
+                  )}
+                  {selectedApp.leaseId && (
+                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 flex items-start gap-2">
+                      <UserCheck className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-xs font-medium">Moved in</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          The tenancy and lease exist, and the unit is occupied.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -367,6 +448,55 @@ export default function ApplicationsPage() {
             <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
             <Button onClick={handleAddApplication} disabled={!form.firstName || !form.lastName || !form.email || !form.unitId || saving} className="gradient-brand text-white border-0">
               {saving ? "Submitting..." : "Submit Application"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move-in Dialog */}
+      <Dialog open={!!movingIn} onOpenChange={(open) => { if (!open) setMovingIn(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Move in {movingIn?.applicant.firstName} {movingIn?.applicant.lastName}</DialogTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              This creates the tenant record and an active lease, and marks the unit occupied.
+              Any live advert for the unit is retired.
+            </p>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Lease starts</Label>
+                <Input type="date" value={moveInForm.startDate} onChange={e => setMoveInForm({ ...moveInForm, startDate: e.target.value })} />
+              </div>
+              <div>
+                <Label>Lease ends</Label>
+                <Input type="date" value={moveInForm.endDate} onChange={e => setMoveInForm({ ...moveInForm, endDate: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Monthly rent ($)</Label>
+                <Input type="number" value={moveInForm.rentAmount} onChange={e => setMoveInForm({ ...moveInForm, rentAmount: e.target.value })} />
+              </div>
+              <div>
+                <Label>Security deposit ($)</Label>
+                <Input type="number" value={moveInForm.securityDeposit} onChange={e => setMoveInForm({ ...moveInForm, securityDeposit: e.target.value })} />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Prefilled from the unit and the date the applicant asked for — change anything that
+              does not match what you agreed.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMovingIn(null)}>Cancel</Button>
+            <Button
+              onClick={handleMoveIn}
+              disabled={movingInSaving || !moveInForm.startDate || !moveInForm.endDate}
+              className="gradient-brand text-white border-0"
+            >
+              {movingInSaving ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Moving in...</> : "Confirm move-in"}
             </Button>
           </DialogFooter>
         </DialogContent>
