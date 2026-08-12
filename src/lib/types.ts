@@ -428,6 +428,15 @@ export interface RentalApplication {
   notes?: string;
   applicationFee?: number;
   /**
+   * Set when this arrived as an enquiry about a sublet rather than a vacancy.
+   *
+   * A sublet enquirer has answered far less than a rental applicant — no
+   * employer, no income, no references — so screening a record with this set
+   * would be scoring blanks. It marks where the interest came from and links
+   * back to the room.
+   */
+  subletId?: string;
+  /**
    * Set when the application was turned into a tenancy.
    *
    * Approving an applicant and moving them in are different acts — an approval
