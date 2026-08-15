@@ -15,6 +15,7 @@ import { PLANS, PLAN_ORDER, formatPlanPrice, planFor } from "@/lib/plans";
 import { isOwnerOrManagerRole } from "@/lib/roles";
 import type { OrgPayouts, PlanId } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   trialing: { label: "Free trial", className: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
@@ -60,9 +61,9 @@ export default function BillingPage() {
         method: "POST",
         body: JSON.stringify({ plan: planId }),
       });
-      window.location.href = url;
-    } catch (err: any) {
-      toast.error(err?.message || "Could not start checkout.");
+      window.location.assign(url);
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not start checkout."));
       setBusyPlan(null);
     }
   };
@@ -74,9 +75,9 @@ export default function BillingPage() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      window.location.href = url;
-    } catch (err: any) {
-      toast.error(err?.message || "Could not open the billing portal.");
+      window.location.assign(url);
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not open the billing portal."));
       setPortalBusy(false);
     }
   };
@@ -88,9 +89,9 @@ export default function BillingPage() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      window.location.href = url;
-    } catch (err: any) {
-      toast.error(err?.message || "Could not start payout setup.");
+      window.location.assign(url);
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not start payout setup."));
       setConnectBusy(false);
     }
   };

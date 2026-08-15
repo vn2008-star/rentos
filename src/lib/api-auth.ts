@@ -3,6 +3,7 @@ import { getAdminAuth, getAdminDb } from "./firebase-admin";
 import { Collections } from "./collections";
 import { isOwnerOrManagerRole, isStaffRole } from "./roles";
 import type { UserProfile } from "./types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * Identifying the caller of an API route.
@@ -44,8 +45,8 @@ export async function authenticate(req: NextRequest): Promise<Caller | null> {
   try {
     const auth = await getAdminAuth();
     decoded = await auth.verifyIdToken(token);
-  } catch (err: any) {
-    console.warn("[api-auth] Token verification failed:", err?.message);
+  } catch (err) {
+    console.warn("[api-auth] Token verification failed:", errorMessage(err));
     return null;
   }
 

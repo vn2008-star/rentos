@@ -27,6 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { NoteKind, KeyKind, LockChange } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 const NOTE_META: Record<NoteKind, { label: string; icon: React.ComponentType<{ className?: string }>; tone: string }> = {
   note:      { label: "Note",      icon: StickyNote,    tone: "text-muted-foreground bg-muted" },
@@ -123,7 +124,7 @@ export default function UnitDetailPage() {
       setNoteForm({ kind: "note", body: "" });
       toast.success("Added to the unit's history");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save the note");
+      toast.error(err instanceof Error ? errorMessage(err) : "Could not save the note");
     } finally {
       setSaving(false);
     }
@@ -145,7 +146,7 @@ export default function UnitDetailPage() {
       setShowAddKey(false);
       setKeyForm({ label: "", kind: "physical", copies: 1, notes: "" });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not add the key");
+      toast.error(err instanceof Error ? errorMessage(err) : "Could not add the key");
     } finally {
       setSaving(false);
     }
@@ -164,7 +165,7 @@ export default function UnitDetailPage() {
       setShowRekey(false);
       setRekeyForm({ reason: "turnover", cost: "", notes: "" });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not record the change");
+      toast.error(err instanceof Error ? errorMessage(err) : "Could not record the change");
     } finally {
       setSaving(false);
     }
@@ -179,7 +180,7 @@ export default function UnitDetailPage() {
       toast.success("Gallery updated");
       setShowPhotos(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not update the gallery");
+      toast.error(err instanceof Error ? errorMessage(err) : "Could not update the gallery");
     } finally {
       setSaving(false);
     }

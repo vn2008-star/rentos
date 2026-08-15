@@ -4,6 +4,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { appUrl, getStripe } from "@/lib/stripe-server";
 import type { Organization } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * POST /api/connect/onboard — starts (or resumes) Stripe Connect onboarding.
@@ -82,8 +83,8 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ url: link.url, accountId });
-  } catch (err: any) {
-    console.error("[connect/onboard]", err?.message);
-    return jsonError(err?.message || "Could not start Stripe onboarding", 502);
+  } catch (err) {
+    console.error("[connect/onboard]", errorMessage(err));
+    return jsonError(errorMessage(err, "Could not start Stripe onboarding"), 502);
   }
 }

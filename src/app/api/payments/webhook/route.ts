@@ -3,7 +3,9 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { notifyOrg as notify } from "@/lib/server-notify";
 import { isPlanId } from "@/lib/plans";
+import { getStripe } from "@/lib/stripe-server";
 import type { BillingStatus } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * POST /api/payments/webhook
@@ -17,6 +19,20 @@ import type { BillingStatus } from "@/lib/types";
  * same event more than once, so a deterministic id makes replays idempotent
  * instead of duplicating a tenant's rent payment.
  */
+
+/**
+ * The id of a Stripe field that may arrive either expanded or as a bare id.
+ *
+ * Webhook payloads are unexpanded, so these are strings in practice — but the
+ * types allow the object form, and writing one straight into Firestore would
+ * persist a whole nested Stripe object where an id belongs.
+ */
+function refId(
+  value: string | { id: string } | null | undefined
+): string | undefined {
+  if (!value) return undefined;
+  return typeof value === "string" ? value : value.id;
+}
 
 /** Tenant's display name for notification copy, or a neutral fallback. */
 async function tenantLabel(tenantId?: string): Promise<string> {
@@ -113,7 +129,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
 
-  const stripe = require("stripe")(stripeSecretKey);
+  // getStripe() rather than require(): it is the same lazy load every other
+  // route uses, and it keeps the top-level Stripe import out of the server
+  // bundle — see stripe-server.ts for why that matters at deploy time. The
+  // demo-key guard above means this cannot actually be null.
+  const stripe = await getStripe();
+  if (!stripe) {
+    console.error("[Webhook] Stripe is not configured — refusing to process events");
+    return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
+  }
+
   const body = await req.text();
   const sig = req.headers.get("stripe-signature");
 
@@ -121,8 +146,8 @@ export async function POST(req: NextRequest) {
   try {
     if (!sig) throw new Error("Missing stripe-signature header");
     event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
-  } catch (err: any) {
-    console.error("[Webhook] Signature verification failed:", err.message);
+  } catch (err) {
+    console.error("[Webhook] Signature verification failed:", errorMessage(err));
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
 
@@ -144,8 +169,9 @@ export async function POST(req: NextRequest) {
 
         // Stripe hosts the receipt; latest_charge is an id that must be fetched.
         let receiptUrl: string | undefined;
-        if (pi.latest_charge) {
-          const charge = await stripe.charges.retrieve(pi.latest_charge);
+        const chargeId = refId(pi.latest_charge);
+        if (chargeId) {
+          const charge = await stripe.charges.retrieve(chargeId);
           receiptUrl = charge.receipt_url ?? undefined;
         }
 
@@ -254,8 +280,9 @@ export async function POST(req: NextRequest) {
         // Store the card's display details, never the payment method itself —
         // Stripe holds that, we only keep enough to render "Visa ···· 4242".
         let card: { brand: string; last4: string; expMonth: number; expYear: number } | null = null;
-        if (si.payment_method) {
-          const pm = await stripe.paymentMethods.retrieve(si.payment_method);
+        const paymentMethodId = refId(si.payment_method);
+        if (paymentMethodId) {
+          const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
           if (pm.card) {
             card = {
               brand: pm.card.brand,
@@ -296,8 +323,8 @@ export async function POST(req: NextRequest) {
 
         await applySubscription(db, orgId, {
           plan: session.metadata?.plan,
-          subscriptionId: session.subscription,
-          customerId: session.customer,
+          subscriptionId: refId(session.subscription),
+          customerId: refId(session.customer),
           status: "active",
         });
 
@@ -318,7 +345,7 @@ export async function POST(req: NextRequest) {
         await applySubscription(db, orgId, {
           plan: sub.metadata?.plan,
           subscriptionId: sub.id,
-          customerId: sub.customer,
+          customerId: refId(sub.customer),
           // Stripe's vocabulary is wider than ours; anything we do not model
           // (paused, unpaid, incomplete_expired) is treated as not paying.
           status:
@@ -331,8 +358,14 @@ export async function POST(req: NextRequest) {
                   : sub.status === "incomplete"
                     ? "incomplete"
                     : "canceled",
-          currentPeriodEnd: sub.current_period_end
-            ? new Date(sub.current_period_end * 1000).toISOString()
+          // Read off the subscription item, not the subscription. Stripe moved
+          // current_period_end down to the item in the 2025 API versions, so
+          // `sub.current_period_end` had silently been undefined — the billing
+          // period end was never recorded, and the Billing page had nothing to
+          // show for "renews on". Single-item subscriptions here, so item 0 is
+          // the whole story.
+          currentPeriodEnd: sub.items.data[0]?.current_period_end
+            ? new Date(sub.items.data[0].current_period_end * 1000).toISOString()
             : undefined,
           cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
         });
@@ -346,10 +379,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ received: true });
-  } catch (err: any) {
+  } catch (err) {
     // Returning 500 makes Stripe retry, which is what we want for a transient
     // Firestore failure — the deterministic doc id keeps the retry safe.
-    console.error("[Webhook] Error handling event:", err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("[Webhook] Error handling event:", errorMessage(err));
+    return NextResponse.json({ error: errorMessage(err) }, { status: 500 });
   }
 }

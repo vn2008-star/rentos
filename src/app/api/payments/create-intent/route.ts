@@ -4,6 +4,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { applicationFeeFor, getStripe } from "@/lib/stripe-server";
 import type { Lease, Organization } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * POST /api/payments/create-intent — takes a rent payment.
@@ -127,8 +128,8 @@ export async function POST(req: NextRequest) {
       clientSecret: intent.client_secret,
       paymentIntentId: intent.id,
     });
-  } catch (err: any) {
-    console.error("[Payments API] Error:", err?.message);
-    return jsonError(err?.message || "Payment could not be started", 502);
+  } catch (err) {
+    console.error("[Payments API] Error:", errorMessage(err));
+    return jsonError(errorMessage(err, "Payment could not be started"), 502);
   }
 }

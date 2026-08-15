@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * The public advert for one vacancy.
@@ -109,8 +110,8 @@ export default function PublicListingPage() {
       if (!res.ok) throw new Error(body.error || "Could not submit the application.");
       setApplied(true);
       toast.success("Application submitted.");
-    } catch (err: any) {
-      toast.error(err?.message || "Could not submit the application.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not submit the application."));
     } finally {
       setApplying(false);
     }

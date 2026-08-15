@@ -147,7 +147,7 @@ export default function TenantMaintenancePage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Category</Label>
-                <Select value={form.category} onValueChange={(v: any) => v != null && setForm({ ...form, category: v })}>
+                <Select value={form.category} onValueChange={v => v != null && setForm({ ...form, category: v as MaintenanceCategory })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="plumbing">Plumbing</SelectItem>
@@ -163,7 +163,7 @@ export default function TenantMaintenancePage() {
               </div>
               <div>
                 <Label>Priority</Label>
-                <Select value={form.priority} onValueChange={(v: any) => v != null && setForm({ ...form, priority: v })}>
+                <Select value={form.priority} onValueChange={v => v != null && setForm({ ...form, priority: v as MaintenancePriority })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="emergency">🔴 Emergency</SelectItem>

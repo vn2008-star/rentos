@@ -5,6 +5,7 @@ import { Collections } from "@/lib/collections";
 import { appUrl, getStripe } from "@/lib/stripe-server";
 import { PLANS, isPlanId } from "@/lib/plans";
 import type { Organization } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * POST /api/billing/checkout — starts a RentOS subscription.
@@ -98,8 +99,8 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ url: session.url });
-  } catch (err: any) {
-    console.error("[billing/checkout]", err?.message);
-    return jsonError(err?.message || "Could not start checkout", 502);
+  } catch (err) {
+    console.error("[billing/checkout]", errorMessage(err));
+    return jsonError(errorMessage(err, "Could not start checkout"), 502);
   }
 }

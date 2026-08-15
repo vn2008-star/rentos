@@ -15,6 +15,7 @@ import { RentosMark } from "@/components/rentos-mark";
 import { Button } from "@/components/ui/button";
 import { PLANS, PLAN_ORDER, TRIAL_LABEL, formatPlanPrice } from "@/lib/plans";
 import { loginAsDemoVisitor } from "@/lib/auth";
+import { errorMessage } from "@/lib/errors";
 
 const features = [
   {
@@ -95,8 +96,8 @@ export default function LandingPage() {
       const profile = await loginAsDemoVisitor();
       setUser(profile);
       router.push("/dashboard");
-    } catch (err: any) {
-      setDemoError(err?.message || "The demo could not be started.");
+    } catch (err) {
+      setDemoError(errorMessage(err, "The demo could not be started."));
       setDemoLoading(false);
     }
   };

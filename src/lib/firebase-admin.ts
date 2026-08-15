@@ -32,7 +32,8 @@ let cachedAuth: Auth | null = null;
 
 /** The one place the admin app is initialised, so routes cannot race each other. */
 async function getAdminApp() {
-  const { getApps, initializeApp, cert } = await nodeImport("firebase-admin/app");
+  const { getApps, initializeApp, cert } =
+    await nodeImport<typeof import("firebase-admin/app")>("firebase-admin/app");
 
   const existing = getApps();
   if (existing.length > 0) return existing[0];
@@ -49,12 +50,10 @@ export async function getAdminDb(): Promise<Firestore> {
   if (cachedDb) return cachedDb;
 
   const app = await getAdminApp();
-  const { getFirestore } = await nodeImport("firebase-admin/firestore");
+  const { getFirestore } =
+    await nodeImport<typeof import("firebase-admin/firestore")>("firebase-admin/firestore");
 
-  // nodeImport is deliberately untyped, so the cast is where the types come
-  // back. The `import type` at the top of this file is erased at build time and
-  // never becomes a runtime import.
-  cachedDb = getFirestore(app) as Firestore;
+  cachedDb = getFirestore(app);
   return cachedDb;
 }
 
@@ -62,14 +61,15 @@ export async function getAdminAuth(): Promise<Auth> {
   if (cachedAuth) return cachedAuth;
 
   const app = await getAdminApp();
-  const { getAuth } = await nodeImport("firebase-admin/auth");
+  const { getAuth } = await nodeImport<typeof import("firebase-admin/auth")>("firebase-admin/auth");
 
-  cachedAuth = getAuth(app) as Auth;
+  cachedAuth = getAuth(app);
   return cachedAuth;
 }
 
 /** FieldValue, for deleting fields and other sentinels. */
 export async function getFieldValue(): Promise<typeof FieldValue> {
-  const { FieldValue: fv } = await nodeImport("firebase-admin/firestore");
+  const { FieldValue: fv } =
+    await nodeImport<typeof import("firebase-admin/firestore")>("firebase-admin/firestore");
   return fv;
 }

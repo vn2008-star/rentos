@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { authedFetch } from "@/lib/api-client";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * Taking a rent payment.
@@ -283,9 +284,9 @@ export function StripePaymentForm({
         if (cancelled) return;
         if (intent.demo) setDemo(true);
         else setClientSecret(intent.clientSecret);
-      } catch (err: any) {
+      } catch (err) {
         if (cancelled) return;
-        const message = err?.message || "Payment could not be started";
+        const message = errorMessage(err, "Payment could not be started");
         setLoadError(message);
         onError?.(message);
       }

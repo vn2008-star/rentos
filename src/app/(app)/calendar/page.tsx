@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import type { CalendarEventType } from "@/lib/types";
 import toast from "react-hot-toast";
 import { useQuickAdd } from "@/lib/quick-add";
+import { errorMessage } from "@/lib/errors";
 
 const EVENT_META: Record<CalendarEventType, {
   label: string; icon: React.ComponentType<{ className?: string }>; tone: string; dot: string;
@@ -140,7 +141,7 @@ export default function CalendarPage() {
       setShowAdd(false);
       setForm({ ...form, title: "", notes: "", unitId: "" });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save the event");
+      toast.error(err instanceof Error ? errorMessage(err) : "Could not save the event");
     } finally {
       setSaving(false);
     }

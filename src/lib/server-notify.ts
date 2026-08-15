@@ -1,6 +1,7 @@
 import { getAdminDb } from "./firebase-admin";
 import { Collections } from "./collections";
 import type { NotificationKind } from "./types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * Writes an in-app notification from the server.
@@ -29,7 +30,7 @@ export async function notifyOrg(n: {
       read: false,
       createdAt: new Date().toISOString(),
     });
-  } catch (err: any) {
-    console.error("[notify] Failed to write notification:", err?.message);
+  } catch (err) {
+    console.error("[notify] Failed to write notification:", errorMessage(err));
   }
 }

@@ -20,6 +20,7 @@ import { useAuthStore } from "@/lib/store";
 import { INVITABLE_ROLES, ROLE_LABELS, isOwnerOrManagerRole } from "@/lib/roles";
 import type { UserRole } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 function initials(name: string): string {
   return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() || "U";
@@ -46,8 +47,8 @@ export default function TeamPage() {
       setLastLink(acceptUrl);
       setEmail("");
       toast.success("Invitation created — send them the link.");
-    } catch (err: any) {
-      toast.error(err?.message || "Could not create the invitation.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not create the invitation."));
     } finally {
       setSending(false);
     }
@@ -67,8 +68,8 @@ export default function TeamPage() {
     try {
       await changeRole(userId, next);
       toast.success("Role updated.");
-    } catch (err: any) {
-      toast.error(err?.message || "Could not change that role.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not change that role."));
     } finally {
       setBusyId(null);
     }
@@ -80,8 +81,8 @@ export default function TeamPage() {
     try {
       await removeMember(userId);
       toast.success(`${name} removed.`);
-    } catch (err: any) {
-      toast.error(err?.message || "Could not remove that person.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not remove that person."));
     } finally {
       setBusyId(null);
     }
@@ -227,8 +228,8 @@ export default function TeamPage() {
                       try {
                         await revokeInvite(inv.id);
                         toast.success("Invitation revoked.");
-                      } catch (err: any) {
-                        toast.error(err?.message || "Could not revoke.");
+                      } catch (err) {
+                        toast.error(errorMessage(err, "Could not revoke."));
                       }
                     }}
                   >

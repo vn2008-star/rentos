@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * POST /api/auth/claim-tenancy
@@ -122,8 +123,8 @@ export async function POST(req: NextRequest) {
     console.log(`[claim-tenancy] linked ${email} to tenant ${tenant.id} in ${orgId}`);
     const result: ClaimResult = { linked: true, tenantId: tenant.id, orgId };
     return NextResponse.json(result);
-  } catch (err: any) {
-    console.error("[claim-tenancy] Error:", err.message);
+  } catch (err) {
+    console.error("[claim-tenancy] Error:", errorMessage(err));
     return NextResponse.json({ error: "Could not verify the account" }, { status: 401 });
   }
 }

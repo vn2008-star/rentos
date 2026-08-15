@@ -18,6 +18,7 @@ import { authedJson } from "@/lib/api-client";
 import { defaultLeaseTerm } from "@/lib/move-in";
 import type { RentalApplication, ApplicationStatus, ScreeningResult } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 const statusConfig: Record<ApplicationStatus, { label: string; color: string; icon: typeof FileText }> = {
   submitted: { label: "Submitted", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30", icon: Clock },
@@ -155,7 +156,7 @@ export default function ApplicationsPage() {
     } catch (err) {
       // The route's own message is the useful one — "that unit is already
       // occupied" beats "request failed".
-      toast.error(err instanceof Error ? err.message : "Could not complete the move-in");
+      toast.error(err instanceof Error ? errorMessage(err) : "Could not complete the move-in");
     } finally {
       setMovingInSaving(false);
     }

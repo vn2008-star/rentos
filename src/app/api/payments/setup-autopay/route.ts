@@ -4,6 +4,7 @@ import { getAdminDb, getFieldValue } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { getStripe } from "@/lib/stripe-server";
 import type { Tenant } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * POST /api/payments/setup-autopay — saves a card for future rent.
@@ -114,9 +115,9 @@ export async function POST(req: NextRequest) {
       clientSecret: setupIntent.client_secret,
       customerId,
     });
-  } catch (err: any) {
-    console.error("[Setup Autopay] Error:", err?.message);
-    return jsonError(err?.message || "Could not start autopay setup", 502);
+  } catch (err) {
+    console.error("[Setup Autopay] Error:", errorMessage(err));
+    return jsonError(errorMessage(err, "Could not start autopay setup"), 502);
   }
 }
 
@@ -148,9 +149,9 @@ export async function DELETE(req: NextRequest) {
   if (stripe && tenant.stripePaymentMethodId) {
     try {
       await stripe.paymentMethods.detach(tenant.stripePaymentMethodId);
-    } catch (err: any) {
+    } catch (err) {
       // Already detached, or never existed. Clearing our own record still stands.
-      console.warn("[Setup Autopay] detach failed:", err?.message);
+      console.warn("[Setup Autopay] detach failed:", errorMessage(err));
     }
   }
 

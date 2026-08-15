@@ -4,6 +4,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { getStripe } from "@/lib/stripe-server";
 import type { Organization, OrgPayouts } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * GET /api/connect/status — re-reads the org's payout account from Stripe.
@@ -57,8 +58,8 @@ export async function GET(req: NextRequest) {
     await orgRef.set({ payouts, updatedAt: payouts.updatedAt }, { merge: true });
 
     return NextResponse.json({ connected: true, payouts });
-  } catch (err: any) {
-    console.error("[connect/status]", err?.message);
+  } catch (err) {
+    console.error("[connect/status]", errorMessage(err));
     return jsonError("Could not read the payout account from Stripe", 502);
   }
 }

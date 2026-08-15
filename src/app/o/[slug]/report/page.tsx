@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { usePublicOrg } from "@/lib/use-public-org";
 import { PublicOrgHeader, PublicOrgState } from "@/components/public-org-header";
 import type { MaintenanceCategory, MaintenancePriority } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 const categoryOptions: { value: MaintenanceCategory; label: string }[] = [
   { value: "plumbing", label: "🔧 Plumbing" },
@@ -69,8 +70,8 @@ export default function PublicReportPage() {
       // screen either way, so a report that never saved looked like one that did.
       if (!res.ok) throw new Error(body.error || "Could not submit the request.");
       setReference(body.reference);
-    } catch (err: any) {
-      setSubmitError(err?.message || "Could not submit the request.");
+    } catch (err) {
+      setSubmitError(errorMessage(err, "Could not submit the request."));
     } finally {
       setSaving(false);
     }
@@ -235,7 +236,7 @@ export default function PublicReportPage() {
                 <Label>Category</Label>
                 <Select
                   value={form.category}
-                  onValueChange={(v: any) => v != null && setForm({ ...form, category: v })}
+                  onValueChange={v => v != null && setForm({ ...form, category: v as MaintenanceCategory })}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -249,7 +250,7 @@ export default function PublicReportPage() {
                 <Label>Urgency</Label>
                 <Select
                   value={form.priority}
-                  onValueChange={(v: any) => v != null && setForm({ ...form, priority: v })}
+                  onValueChange={v => v != null && setForm({ ...form, priority: v as MaintenancePriority })}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>

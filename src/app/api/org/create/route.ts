@@ -4,6 +4,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { DEFAULT_PLAN, TRIAL_DAYS } from "@/lib/plans";
 import type { Organization } from "@/lib/types";
+import { errorMessage, errorCode } from "@/lib/errors";
 
 /**
  * POST /api/org/create — founds an organization for the signed-in account.
@@ -134,10 +135,10 @@ export async function POST(req: NextRequest) {
 
     try {
       await db.collection(Collections.ORGANIZATIONS).doc(candidate).create(org);
-    } catch (err: any) {
+    } catch (err) {
       // 6 = ALREADY_EXISTS. Someone took the id between the query and the write.
-      if (err?.code === 6) continue;
-      console.error("[org/create] Failed to create organization:", err?.message);
+      if (errorCode(err) === 6) continue;
+      console.error("[org/create] Failed to create organization:", errorMessage(err));
       return jsonError("Could not create the organization", 500);
     }
 

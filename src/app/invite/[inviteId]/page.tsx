@@ -12,6 +12,7 @@ import { acceptInvite } from "@/lib/use-team";
 import { ROLE_LABELS } from "@/lib/roles";
 import type { UserRole } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 interface InviteSummary {
   orgName: string;
@@ -87,8 +88,8 @@ export default function AcceptInvitePage() {
       }
       toast.success(`You have joined ${result.orgName}.`);
       router.replace(result.role === "tenant" ? "/portal" : result.role === "contractor" ? "/dashboard" : "/dashboard");
-    } catch (err: any) {
-      toast.error(err?.message || "Could not accept the invitation.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not accept the invitation."));
       setAccepting(false);
     }
   };

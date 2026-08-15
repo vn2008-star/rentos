@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { DEFAULT_DEMO_ORG_ID } from "@/lib/demo-session";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * POST /api/demo/session — turns an anonymous visitor into a read-only guest.
@@ -83,8 +84,8 @@ export async function POST(req: NextRequest) {
       orgId: DEMO_ORG_ID,
       orgName: (org.data()?.name as string) ?? "RentOS Demo",
     });
-  } catch (err: any) {
-    console.error("[demo/session]", err?.message);
+  } catch (err) {
+    console.error("[demo/session]", errorMessage(err));
     return NextResponse.json(
       { error: "The demo could not be started." },
       { status: 500 }

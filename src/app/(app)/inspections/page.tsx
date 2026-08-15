@@ -21,6 +21,7 @@ import { useInspections, useUnits, useProperties, useTenants, useCalendar } from
 import { cn } from "@/lib/utils";
 import type { InspectionType, ItemCondition, InspectionArea } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 const TYPE_LABEL: Record<InspectionType, string> = {
   move_in: "Move-in",
@@ -117,7 +118,7 @@ export default function InspectionsPage() {
       setShowSchedule(false);
       setForm({ ...form, unitId: "", scheduledFor: "", tenantId: "" });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not schedule");
+      toast.error(err instanceof Error ? errorMessage(err) : "Could not schedule");
     } finally {
       setSaving(false);
     }
@@ -141,7 +142,7 @@ export default function InspectionsPage() {
       toast.success(`${area.name} recorded`);
       setAreaForm({ name: "", condition: "good", notes: "", estimatedCost: "", photos: [] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save");
+      toast.error(err instanceof Error ? errorMessage(err) : "Could not save");
     } finally {
       setSaving(false);
     }

@@ -19,8 +19,14 @@
  * analysis, so nothing is rewritten and Node resolves the real package from the
  * deployed node_modules — where firebase-admin genuinely is, as a dependency in
  * the generated package.json.
+ *
+ * Callers name the module's shape with the type parameter — for example
+ * `nodeImport<typeof import("firebase-admin/app")>("firebase-admin/app")`. A
+ * `typeof import(...)` type is erased at compile time and never becomes a
+ * runtime import, so it buys real types without reintroducing the specifier the
+ * bundler would rewrite.
  */
-export const nodeImport: (specifier: string) => Promise<any> = new Function(
-  "specifier",
-  "return import(specifier)"
-) as (specifier: string) => Promise<any>;
+export const nodeImport: <T = unknown>(specifier: string) => Promise<T> =
+  new Function("specifier", "return import(specifier)") as <T = unknown>(
+    specifier: string
+  ) => Promise<T>;

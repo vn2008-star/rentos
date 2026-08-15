@@ -14,6 +14,7 @@ import { useAuthStore } from "@/lib/store";
 import { useFeedback } from "@/lib/use-feedback";
 import { isFirebaseConfigured } from "@/lib/demo";
 import type { FeedbackStatus, FeedbackType } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * "Send feedback", from wherever the person is standing.
@@ -91,8 +92,8 @@ export function FeedbackWidget() {
       setRating(0);
       setType("feedback");
       setTimeout(() => { setSent(false); setTab("history"); markRepliesSeen(); }, 1400);
-    } catch (err: any) {
-      setError(err?.message || "Could not send that. Please try again.");
+    } catch (err) {
+      setError(errorMessage(err, "Could not send that. Please try again."));
     } finally {
       setSending(false);
     }

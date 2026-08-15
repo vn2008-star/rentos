@@ -10,6 +10,7 @@ import { authedFetch } from "@/lib/api-client";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import type { Tenant } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * Autopay: saving a card so rent is collected without anyone having to
@@ -41,7 +42,7 @@ function SetupForm({ onDone }: { onDone: () => void }) {
     });
 
     if (err) {
-      setError(err.message || "The card could not be saved.");
+      setError(errorMessage(err, "The card could not be saved."));
       setSaving(false);
       return;
     }
@@ -110,8 +111,8 @@ export function AutopaySetup({ tenant }: { tenant: Tenant | null | undefined }) 
       } else {
         setClientSecret(data.clientSecret);
       }
-    } catch (err: any) {
-      toast.error(err?.message || "Could not start autopay setup.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not start autopay setup."));
     } finally {
       setBusy(false);
     }
@@ -132,8 +133,8 @@ export function AutopaySetup({ tenant }: { tenant: Tenant | null | undefined }) 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not turn autopay off.");
       toast.success("Autopay turned off.");
-    } catch (err: any) {
-      toast.error(err?.message || "Could not turn autopay off.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not turn autopay off."));
     } finally {
       setBusy(false);
     }

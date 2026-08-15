@@ -282,7 +282,7 @@ export default function ContractorOrderPage() {
           <CardContent className="p-5 text-center space-y-2">
             <CheckCircle className="h-8 w-8 text-emerald-400 mx-auto" />
             <p className="text-sm font-medium">Approved! Total: ${wo.totalCost?.toLocaleString()}</p>
-            {wo.managerApproval?.notes && <p className="text-xs text-muted-foreground">"{wo.managerApproval.notes}"</p>}
+            {wo.managerApproval?.notes && <p className="text-xs text-muted-foreground">&ldquo;{wo.managerApproval.notes}&rdquo;</p>}
           </CardContent>
         </Card>
       )}

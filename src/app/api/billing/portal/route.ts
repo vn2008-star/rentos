@@ -4,6 +4,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { appUrl, getStripe } from "@/lib/stripe-server";
 import type { Organization } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * POST /api/billing/portal — opens Stripe's own billing portal.
@@ -36,8 +37,8 @@ export async function POST(req: NextRequest) {
       return_url: appUrl("/billing"),
     });
     return NextResponse.json({ url: session.url });
-  } catch (err: any) {
-    console.error("[billing/portal]", err?.message);
-    return jsonError(err?.message || "Could not open the billing portal", 502);
+  } catch (err) {
+    console.error("[billing/portal]", errorMessage(err));
+    return jsonError(errorMessage(err, "Could not open the billing portal"), 502);
   }
 }
