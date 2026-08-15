@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CardGridSkeleton } from "@/components/ui/skeleton";
 import { useVendors, useWorkOrders } from "@/lib/hooks";
 import type { MaintenanceCategory } from "@/lib/types";
 import toast from "react-hot-toast";
@@ -113,7 +114,7 @@ export default function VendorsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-heading lg:text-3xl">Vendor Directory</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
-            {activeVendors.length} active vendors
+            {loading ? "Loading vendors…" : `${activeVendors.length} active vendors`}
             <Badge variant="outline" className={`text-[10px] gap-1 ${isLive ? "text-emerald-400 border-emerald-500/30" : "text-amber-400 border-amber-500/30"}`}>
               {isLive ? <><Wifi className="h-2.5 w-2.5" /> Live</> : <><WifiOff className="h-2.5 w-2.5" /> Demo</>}
             </Badge>
@@ -166,6 +167,7 @@ export default function VendorsPage() {
       </div>
 
       {/* Vendor Cards */}
+      {loading ? <CardGridSkeleton count={6} height="h-72" /> : (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map(vendor => {
           const vendorOrders = workOrders.filter(wo => wo.vendorId === vendor.id);
@@ -230,6 +232,7 @@ export default function VendorsPage() {
           );
         })}
       </div>
+      )}
 
       {/* Add Vendor Dialog */}
       <Dialog open={showAdd} onOpenChange={setShowAdd}>

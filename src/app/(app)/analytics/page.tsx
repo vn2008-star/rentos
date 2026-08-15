@@ -16,7 +16,10 @@ import {
   useLeases, useTransactions, useVendors, useWorkOrders,
   useApplications, useListings,
 } from "@/lib/hooks";
-import { mockDashboardStats } from "@/lib/mock-data";
+import { buildRevenueHistory, isEmptyHistory } from "@/lib/finance";
+
+/** The period dropdown, in months. Drives the revenue chart's window. */
+const PERIOD_MONTHS: Record<string, number> = { "1m": 1, "3m": 3, "6m": 6, "1y": 12 };
 
 function BarViz({ value, max, color }: { value: number; max: number; color: string }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
@@ -26,29 +29,32 @@ function BarViz({ value, max, color }: { value: number; max: number; color: stri
 function MiniDonut({ segments }: { segments: { value: number; color: string; label: string }[] }) {
   const total = segments.reduce((s, seg) => s + seg.value, 0);
   if (total === 0) return <div className="h-24 w-24 rounded-full border-4 border-border/30" />;
-  let offset = 0;
   const size = 96;
   const stroke = 12;
   const r = (size - stroke) / 2;
   const circ = 2 * Math.PI * r;
 
+  // Each arc starts where the previous ones ended, so its offset is the share of
+  // the circle everything before it takes up. Derived per segment rather than by
+  // mutating a running total through the map — rendering has to be a pure
+  // function of the props, and a counter that survives the loop is state hiding
+  // in the render body. Quadratic, over four segments.
+  const arcs = segments.map((seg, i) => {
+    const preceding = segments.slice(0, i).reduce((s, p) => s + p.value, 0);
+    const dash = circ * (seg.value / total);
+    return { dash, gap: circ - dash, offset: circ * (preceding / total), color: seg.color };
+  });
+
   return (
     <div className="relative">
       <svg width={size} height={size} className="-rotate-90">
-        {segments.map((seg, i) => {
-          const pct = seg.value / total;
-          const dash = circ * pct;
-          const gap = circ - dash;
-          const el = (
-            <circle key={i} cx={size / 2} cy={size / 2} r={r}
-              fill="none" stroke="currentColor" strokeWidth={stroke}
-              strokeDasharray={`${dash} ${gap}`} strokeDashoffset={-offset}
-              className={seg.color} strokeLinecap="round"
-            />
-          );
-          offset += dash;
-          return el;
-        })}
+        {arcs.map((arc, i) => (
+          <circle key={i} cx={size / 2} cy={size / 2} r={r}
+            fill="none" stroke="currentColor" strokeWidth={stroke}
+            strokeDasharray={`${arc.dash} ${arc.gap}`} strokeDashoffset={-arc.offset}
+            className={arc.color} strokeLinecap="round"
+          />
+        ))}
       </svg>
       <div className="absolute inset-0 flex items-center justify-center">
         <span className="text-lg font-bold font-heading">{total}</span>
@@ -70,7 +76,15 @@ export default function AnalyticsPage() {
   const { listings } = useListings();
   const [period, setPeriod] = useState("6m");
 
-  const revenueData = mockDashboardStats.revenueHistory;
+  // The org's own recorded payments, not a sample. This page was still drawing
+  // mockDashboardStats.revenueHistory — the same six invented months for every
+  // organization — long after the dashboard and financials pages were moved off
+  // it. An org with no transactions gets an empty state below instead.
+  const revenueData = useMemo(
+    () => buildRevenueHistory(transactions, PERIOD_MONTHS[period] ?? 6),
+    [transactions, period]
+  );
+  const noRevenueYet = isEmptyHistory(revenueData);
 
   // Occupancy
   const totalUnits = units.length;
@@ -112,7 +126,10 @@ export default function AnalyticsPage() {
     return { ...p, unitCount: pUnits.length, occupied: pOccupied, occupancy: pUnits.length > 0 ? Math.round((pOccupied / pUnits.length) * 100) : 0, revenue: pRevenue, openMaint: pMaint };
   }), [properties, units, maintenance]);
 
-  const maxRevData = Math.max(...revenueData.map(d => d.revenue), 1);
+  // Expenses share the axis, so they have to be in the divisor too, or a month
+  // that spent more than it took in draws a full-width bar against a smaller
+  // max. The 1 floor keeps every bar from being NaN% wide on an all-zero history.
+  const maxRevData = Math.max(1, ...revenueData.map(d => Math.max(d.revenue, d.expenses)));
 
   const handleExport = () => {
     const rows = [
@@ -201,24 +218,32 @@ export default function AnalyticsPage() {
                 <CardTitle className="text-sm font-heading">Revenue Trend</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {revenueData.map(d => (
-                  <div key={d.month} className="group flex items-center gap-3">
-                    <span className="w-8 text-xs text-muted-foreground">{d.month}</span>
-                    <div className="flex-1 space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <BarViz value={d.revenue} max={maxRevData} color="gradient-brand h-4 rounded-md" />
-                        <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity">${(d.revenue / 1000).toFixed(1)}k</span>
+                {noRevenueYet ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    No payments recorded yet. Rent collected through RentOS appears here.
+                  </p>
+                ) : (
+                  <>
+                    {revenueData.map(d => (
+                      <div key={d.key} className="group flex items-center gap-3">
+                        <span className="w-8 text-xs text-muted-foreground">{d.month}</span>
+                        <div className="flex-1 space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <BarViz value={d.revenue} max={maxRevData} color="gradient-brand h-4 rounded-md" />
+                            <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity">${(d.revenue / 1000).toFixed(1)}k</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <BarViz value={d.expenses} max={maxRevData} color="bg-destructive/40 h-1.5 rounded-md" />
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <BarViz value={d.expenses} max={maxRevData} color="bg-destructive/40 h-1.5 rounded-md" />
-                      </div>
+                    ))}
+                    <div className="flex items-center gap-6 pt-3 border-t border-border/30 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full gradient-brand" /> Revenue</span>
+                      <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-destructive/40" /> Expenses</span>
                     </div>
-                  </div>
-                ))}
-                <div className="flex items-center gap-6 pt-3 border-t border-border/30 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full gradient-brand" /> Revenue</span>
-                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-destructive/40" /> Expenses</span>
-                </div>
+                  </>
+                )}
               </CardContent>
             </Card>
 

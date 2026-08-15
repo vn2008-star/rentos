@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CardGridSkeleton } from "@/components/ui/skeleton";
 import { PhotoUpload } from "@/components/photo-upload";
 import { useProperties, useUnits } from "@/lib/hooks";
 import type { PropertyType } from "@/lib/types";
@@ -70,7 +71,7 @@ export default function PropertiesPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-heading lg:text-3xl">Properties</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
-            Manage your {properties.length} properties
+            {loading ? "Loading your portfolio…" : `Manage your ${properties.length} properties`}
             <Badge variant="outline" className={`text-[10px] gap-1 ${isLive ? "text-emerald-400 border-emerald-500/30" : "text-amber-400 border-amber-500/30"}`}>
               {isLive ? <><Wifi className="h-2.5 w-2.5" /> Live</> : <><WifiOff className="h-2.5 w-2.5" /> Demo</>}
             </Badge>
@@ -96,6 +97,7 @@ export default function PropertiesPage() {
         </Select>
       </div>
 
+      {loading ? <CardGridSkeleton count={6} height="h-[300px]" /> : (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((property) => {
           const pUnits = units.filter(u => u.propertyId === property.id);
@@ -149,6 +151,7 @@ export default function PropertiesPage() {
           </div>
         </Card>
       </div>
+      )}
 
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">

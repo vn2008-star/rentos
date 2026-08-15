@@ -11,11 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CardGridSkeleton } from "@/components/ui/skeleton";
 import { PhotoUpload } from "@/components/photo-upload";
 import { useUnits, useProperties } from "@/lib/hooks";
 import type { UnitStatus } from "@/lib/types";
 import toast from "react-hot-toast";
 import { useQuickAdd } from "@/lib/quick-add";
+import { errorMessage } from "@/lib/errors";
 
 const statusConfig: Record<UnitStatus, { label: string; color: string; bg: string }> = {
   available: { label: "Available", color: "text-emerald-400", bg: "bg-emerald-500/15 border-emerald-500/30" },
@@ -66,10 +68,10 @@ export default function UnitsPage() {
       setShowAdd(false);
       setForm({ propertyId: "", unitNumber: "", beds: "1", baths: "1", sqft: "600", rent: "1400", deposit: "1400", status: "available" });
       setPhotos([]);
-    } catch (err: any) {
+    } catch (err) {
       // Plan limits and rule denials both arrive here, and each has something
       // specific to say — "Failed to add unit" told the user nothing.
-      toast.error(err?.message || "Failed to add unit");
+      toast.error(errorMessage(err, "Failed to add unit"));
     }
     finally { setSaving(false); }
   };
@@ -84,7 +86,7 @@ export default function UnitsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-heading lg:text-3xl">Units</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
-            {units.length} total units across {properties.length} properties
+            {loading ? "Loading units…" : `${units.length} total units across ${properties.length} properties`}
             <Badge variant="outline" className={`text-[10px] gap-1 ${isLive ? "text-emerald-400 border-emerald-500/30" : "text-amber-400 border-amber-500/30"}`}>
               {isLive ? <><Wifi className="h-2.5 w-2.5" /> Live</> : <><WifiOff className="h-2.5 w-2.5" /> Demo</>}
             </Badge>
@@ -121,6 +123,9 @@ export default function UnitsPage() {
       </div>
 
       {/* Units Grid */}
+      {loading ? (
+        <CardGridSkeleton count={8} height="h-56" className="gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 md:grid-cols-2" />
+      ) : (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filtered.map((unit) => {
           const prop = properties.find(p => p.id === unit.propertyId);
@@ -165,6 +170,7 @@ export default function UnitsPage() {
           );
         })}
       </div>
+      )}
 
       {/* Add Unit Dialog */}
       <Dialog open={showAdd} onOpenChange={setShowAdd}>

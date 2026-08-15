@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CardGridSkeleton } from "@/components/ui/skeleton";
 import { useTenants, useUnits, useProperties } from "@/lib/hooks";
 import toast from "react-hot-toast";
 import { useQuickAdd } from "@/lib/quick-add";
@@ -59,7 +60,7 @@ export default function TenantsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-heading lg:text-3xl">Tenants</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
-            {tenants.length} tenants across your properties
+            {loading ? "Loading tenants…" : `${tenants.length} tenants across your properties`}
             <Badge variant="outline" className={`text-[10px] gap-1 ${isLive ? "text-emerald-400 border-emerald-500/30" : "text-amber-400 border-amber-500/30"}`}>
               {isLive ? <><Wifi className="h-2.5 w-2.5" /> Live</> : <><WifiOff className="h-2.5 w-2.5" /> Demo</>}
             </Badge>
@@ -82,6 +83,9 @@ export default function TenantsPage() {
       </div>
 
       {/* Tenant Cards */}
+      {loading ? (
+        <CardGridSkeleton count={8} height="h-48" className="gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 md:grid-cols-2" />
+      ) : (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filtered.map((tenant, idx) => {
           const unit = units.find(u => u.id === tenant.unitId);
@@ -123,6 +127,7 @@ export default function TenantsPage() {
           );
         })}
       </div>
+      )}
 
       {/* Add Dialog */}
       <Dialog open={showAdd} onOpenChange={setShowAdd}>

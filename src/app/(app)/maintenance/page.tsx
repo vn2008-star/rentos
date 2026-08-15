@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PhotoUpload } from "@/components/photo-upload";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useMaintenance, useUnits, useProperties, useTenants, useVendors, useWorkOrders } from "@/lib/hooks";
 import type { MaintenanceCategory, MaintenancePriority, MaintenanceStatus, ReporterType } from "@/lib/types";
 import { buildTimeline, getReporterLabel, getReporterBadge, formatTimeAgo, KANBAN_COLUMNS, STATUS_STEPS, getStatusStep } from "@/lib/maintenance-engine";
@@ -212,7 +213,7 @@ export default function MaintenancePage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-heading lg:text-3xl">Maintenance</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
-            {openRequests.length} open requests
+            {loading ? "Loading requests…" : `${openRequests.length} open requests`}
             <Badge variant="outline" className={`text-[10px] gap-1 ${isLive ? "text-emerald-400 border-emerald-500/30" : "text-amber-400 border-amber-500/30"}`}>
               {isLive ? <><Wifi className="h-2.5 w-2.5" /> Live</> : <><WifiOff className="h-2.5 w-2.5" /> Demo</>}
             </Badge>
@@ -253,8 +254,18 @@ export default function MaintenancePage() {
         </div>
       </div>
 
+      {/* Placeholder columns while the subscription resolves, so the board does
+          not render five "No requests" columns a moment before they fill. */}
+      {loading && (
+        <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
+          {KANBAN_COLUMNS.map(col => (
+            <Skeleton key={col.key} className="h-[400px] w-72 flex-shrink-0 rounded-xl" />
+          ))}
+        </div>
+      )}
+
       {/* Kanban Board View */}
-      {viewMode === "board" && (
+      {!loading && viewMode === "board" && (
         <div className="flex gap-3 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
           {KANBAN_COLUMNS.map(col => {
             const colReqs = filtered(requests.filter(r => {
@@ -284,7 +295,7 @@ export default function MaintenancePage() {
       )}
 
       {/* List View */}
-      {viewMode === "list" && (
+      {!loading && viewMode === "list" && (
         <Tabs defaultValue="open">
           <TabsList>
             <TabsTrigger value="open">Open ({openRequests.length})</TabsTrigger>

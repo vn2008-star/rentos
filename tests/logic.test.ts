@@ -28,6 +28,9 @@ import {
   projectSublet, isAdvertisable, overlaps, subletFeedDisabled,
 } from "../src/lib/public-sublets";
 import { defaultLeaseTerm, checkMoveIn } from "../src/lib/move-in";
+import {
+  resolveCollection, applyCollectionWrite, type CollectionState,
+} from "../src/lib/collection-state";
 import type {
   Lease, PaymentRecord, Transaction, MaintenanceRequest, Tenant, Unit, Property,
   Listing, Inspection, KeyRecord, STRPricing,
@@ -968,5 +971,148 @@ describe("checkMoveIn", () => {
   test("a missing application or unit refuses rather than throwing", () => {
     assert.equal(check({ application: null }).ok, false);
     assert.equal(check({ unit: null }).ok, false);
+  });
+});
+
+// ---------------------------------------------------------------- collection state
+
+describe("resolveCollection", () => {
+  type Doc = { id: string };
+  const MOCK: Doc[] = [{ id: "mock-1" }];
+  const REAL: Doc[] = [{ id: "real-1" }];
+  const EMPTY: Doc[] = [];
+  const KEY = "org-1|properties|[]";
+
+  const waiting = (over: Partial<CollectionState<Doc>> = {}): CollectionState<Doc> => ({
+    key: null, docs: EMPTY, status: "waiting", error: null, ...over,
+  });
+
+  test("demo mode shows the mock portfolio and never waits", () => {
+    // No query is possible, so the initial state answers it: key null === null.
+    const r = resolveCollection({
+      canSubscribe: false, queryKey: null, fallbackDocs: MOCK,
+      state: waiting({ docs: MOCK }),
+    });
+    assert.deepEqual(r.data, MOCK);
+    assert.equal(r.loading, false);
+    // Mock data is not live data, and the badge has to say so.
+    assert.equal(r.isLive, false);
+  });
+
+  test("a live org waiting on its first snapshot shows nothing, not mock data", () => {
+    // The bug this whole shape exists to prevent: a fabricated portfolio on the
+    // first frame, wiped a moment later.
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: KEY, fallbackDocs: EMPTY, state: waiting(),
+    });
+    assert.deepEqual(r.data, EMPTY);
+    assert.equal(r.loading, true);
+    assert.equal(r.isLive, false);
+  });
+
+  test("a snapshot for the current query is the answer", () => {
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: KEY, fallbackDocs: EMPTY,
+      state: { key: KEY, docs: REAL, status: "live", error: null },
+    });
+    assert.deepEqual(r.data, REAL);
+    assert.equal(r.loading, false);
+    assert.equal(r.isLive, true);
+  });
+
+  test("an empty result from a live org is an answer, not a reason to invent one", () => {
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: KEY, fallbackDocs: EMPTY,
+      state: { key: KEY, docs: [], status: "live", error: null },
+    });
+    assert.deepEqual(r.data, []);
+    assert.equal(r.loading, false);
+    assert.equal(r.isLive, true);
+  });
+
+  test("documents from a previous query are not shown against a new one", () => {
+    // Switching org, collection or filter: what is in hand answers the old
+    // question. Showing it would be showing another org's portfolio.
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: "org-2|properties|[]", fallbackDocs: EMPTY,
+      state: { key: KEY, docs: REAL, status: "live", error: null },
+    });
+    assert.deepEqual(r.data, EMPTY);
+    assert.equal(r.loading, true);
+    assert.equal(r.isLive, false);
+  });
+
+  test("a failed read surfaces, and is never mistaken for an empty org", () => {
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: KEY, fallbackDocs: EMPTY,
+      state: { key: KEY, docs: [], status: "error", error: "permission denied" },
+    });
+    assert.equal(r.error, "permission denied");
+    assert.equal(r.loading, false);
+    assert.equal(r.isLive, false);
+  });
+
+  test("an error about a different query says nothing about this one", () => {
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: "org-2|properties|[]", fallbackDocs: EMPTY,
+      state: { key: KEY, docs: [], status: "error", error: "permission denied" },
+    });
+    assert.equal(r.error, null);
+  });
+
+  test("a subscription that never answers stops loading rather than hanging", () => {
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: KEY, fallbackDocs: EMPTY,
+      state: { key: KEY, docs: [], status: "timeout", error: null },
+    });
+    assert.equal(r.loading, false);
+    assert.equal(r.isLive, false);
+  });
+
+  test("a collection switched off for this role answers 'nothing' without waiting", () => {
+    // enabled=false — e.g. the tenant roster, which a tenant may not enumerate.
+    // Whatever was loaded before must not linger.
+    const r = resolveCollection({
+      canSubscribe: false, queryKey: null, fallbackDocs: EMPTY,
+      state: { key: KEY, docs: REAL, status: "live", error: null },
+    });
+    assert.deepEqual(r.data, EMPTY);
+    assert.equal(r.loading, false);
+  });
+});
+
+describe("applyCollectionWrite", () => {
+  type Doc = { id: string };
+  const KEY = "org-1|properties|[]";
+  const REAL: Doc[] = [{ id: "real-1" }];
+
+  test("an optimistic write survives instead of being discarded as stale", () => {
+    const next = applyCollectionWrite(
+      { key: KEY, docs: REAL, status: "live", error: null },
+      KEY, [],
+      (docs) => [...docs, { id: "new" }]
+    );
+    assert.deepEqual(next.docs.map((d) => d.id), ["real-1", "new"]);
+    // Claims the current query, so resolveCollection will show it.
+    assert.equal(next.key, KEY);
+  });
+
+  test("a write lands on what the caller is looking at, not on stale documents", () => {
+    // State still holds the previous query's documents, so the caller is looking
+    // at the fallback. Removing from the stale set would resurrect it.
+    const next = applyCollectionWrite(
+      { key: "org-old|properties|[]", docs: REAL, status: "live", error: null },
+      KEY, [],
+      (docs) => [...docs, { id: "new" }]
+    );
+    assert.deepEqual(next.docs.map((d) => d.id), ["new"]);
+  });
+
+  test("a plain value replaces outright", () => {
+    const next = applyCollectionWrite(
+      { key: KEY, docs: REAL, status: "live", error: null },
+      KEY, [], [{ id: "replaced" }]
+    );
+    assert.deepEqual(next.docs.map((d) => d.id), ["replaced"]);
   });
 });

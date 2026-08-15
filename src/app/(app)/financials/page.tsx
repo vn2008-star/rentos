@@ -88,9 +88,7 @@ export default function FinancialsPage() {
   });
 
   const handleAddTransaction = async () => {
-    const orgId = "org-1";
     await addTransaction({
-      orgId,
       type: form.type,
       amount: Number(form.amount),
       description: form.description,
@@ -99,7 +97,7 @@ export default function FinancialsPage() {
       tenantId: form.tenantId || undefined,
       propertyId: form.propertyId || undefined,
       unitId: form.unitId || undefined,
-    } as any);
+    });
     toast.success("Transaction recorded");
     setShowAdd(false);
     setForm({ type: "rent", amount: "", description: "", tenantId: "", propertyId: "", unitId: "", date: new Date().toISOString().split("T")[0] });
@@ -284,7 +282,7 @@ export default function FinancialsPage() {
           <DialogHeader><DialogTitle className="font-heading">Record Transaction</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2"><Label>Type</Label><Select value={form.type} onValueChange={(v: any) => v != null && setForm({ ...form, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="rent">Rent</SelectItem><SelectItem value="deposit">Deposit</SelectItem><SelectItem value="fee">Fee</SelectItem><SelectItem value="late_fee">Late Fee</SelectItem><SelectItem value="maintenance">Maintenance Expense</SelectItem><SelectItem value="refund">Refund</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
+              <div className="col-span-2"><Label>Type</Label><Select value={form.type} onValueChange={v => v != null && setForm({ ...form, type: v as Transaction["type"] })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="rent">Rent</SelectItem><SelectItem value="deposit">Deposit</SelectItem><SelectItem value="fee">Fee</SelectItem><SelectItem value="late_fee">Late Fee</SelectItem><SelectItem value="maintenance">Maintenance Expense</SelectItem><SelectItem value="refund">Refund</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
               <div><Label>Amount ($)</Label><Input type="number" placeholder="1800" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
               <div><Label>Date</Label><Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
               <div className="col-span-2"><Label>Description</Label><Input placeholder="December rent — Unit 101" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>

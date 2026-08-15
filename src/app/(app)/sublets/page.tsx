@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CardGridSkeleton } from "@/components/ui/skeleton";
 import { useSublets, useUnits, useProperties, useTenants } from "@/lib/hooks";
 import type { Sublet } from "@/lib/types";
 import toast from "react-hot-toast";
@@ -193,7 +194,7 @@ export default function SubletsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-heading lg:text-3xl">Sublets & Short-Term</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
-            {sublets.length} sublet{sublets.length !== 1 ? "s" : ""} · Davis CA summer marketplace
+            {loading ? "Loading sublets…" : `${sublets.length} sublet${sublets.length !== 1 ? "s" : ""} · Davis CA summer marketplace`}
             <Badge variant="outline" className={`text-[10px] gap-1 ${isLive ? "text-emerald-400 border-emerald-500/30" : "text-amber-400 border-amber-500/30"}`}>
               {isLive ? <><Wifi className="h-2.5 w-2.5" /> Live</> : <><WifiOff className="h-2.5 w-2.5" /> Demo</>}
             </Badge>
@@ -299,6 +300,7 @@ export default function SubletsPage() {
       </div>
 
       {/* Tabs */}
+      {loading ? <CardGridSkeleton count={6} height="h-64" /> : (
       <Tabs defaultValue="all">
         <TabsList>
           <TabsTrigger value="all">All ({sublets.length})</TabsTrigger>
@@ -321,6 +323,7 @@ export default function SubletsPage() {
           </TabsContent>
         ))}
       </Tabs>
+      )}
 
       {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

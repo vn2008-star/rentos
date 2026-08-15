@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  useState, useEffect, useCallback, useMemo,
+  type Dispatch, type SetStateAction,
+} from "react";
 import { where, type WhereFilterOp } from "firebase/firestore";
 import { useAuthStore } from "./store";
 import {
@@ -19,6 +22,10 @@ import {
 import { buildReminders } from "./reminders";
 import { useOrganization } from "./use-org";
 import { canAddUnit } from "./plans";
+import {
+  resolveCollection, applyCollectionWrite, type CollectionState,
+} from "./collection-state";
+import { errorMessage } from "@/lib/errors";
 import type {
   Property, Unit, Tenant, MaintenanceRequest, RentalApplication,
   Lease, Transaction, Listing, Sublet, LeaseStatus, ApplicationStatus, ScreeningResult,
@@ -80,65 +87,91 @@ function useFirestoreCollection<T>(
   filters: Filter[] = []
 ) {
   const user = useAuthStore((s) => s.user);
-  const [data, setData] = useState<T[]>(mockData);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isLive, setIsLive] = useState(false);
+  const orgId = user?.orgId;
 
   // Security rules reject a query that could return documents the caller may
   // not read, so tenant-facing screens must narrow the query rather than filter
   // afterwards. Serialised so it can be a stable effect dependency.
   const filterKey = JSON.stringify(filters);
 
+  // Without credentials the subscription can only fail, so don't wait on one.
+  const live = isFirebaseConfigured();
+  const canSubscribe = Boolean(orgId) && enabled && live;
+
+  // Identifies the query being asked about right now. When it changes, whatever
+  // documents are in hand answer the *previous* question — which is what makes
+  // the reset below a render-time comparison rather than something an effect has
+  // to perform on its way out.
+  const queryKey = canSubscribe ? `${orgId}|${collectionName}|${filterKey}` : null;
+
+  // What to show when no snapshot answers the current query. Mock data is the
+  // demo affordance and nothing more: when Firebase is live but this collection
+  // is switched off for the current role, the honest answer is "nothing", not a
+  // fabricated portfolio. Memoised so `setData` below keeps a stable identity.
+  const fallbackDocs = useMemo<T[]>(() => (live ? [] : mockData), [live, mockData]);
+
+  const [state, setState] = useState<CollectionState<T>>(() => ({
+    key: null,
+    docs: live ? [] : mockData,
+    status: "waiting",
+    error: null,
+  }));
+
   useEffect(() => {
-    // Without credentials the subscription can only fail, so don't wait on it.
-    if (!user?.orgId || !enabled || !isFirebaseConfigured()) {
-      // Mock data is the demo affordance and nothing more. When Firebase is
-      // live but this collection is switched off for the current role, the
-      // honest answer is "nothing", not a fabricated portfolio.
-      setData(isFirebaseConfigured() ? [] : mockData);
-      setLoading(false);
-      return;
-    }
+    if (!canSubscribe || !orgId || !queryKey) return;
 
     const constraints = (JSON.parse(filterKey) as Filter[]).map((f) =>
       where(f.field, f.op, f.value)
     );
 
-    setLoading(true);
     const unsubscribe = subscribeToCollection<T>(
       collectionName,
-      user.orgId,
-      (docs) => {
-        // Once Firebase is configured, Firestore is the truth — including when
-        // it returns nothing. Substituting mock data for an empty result would
-        // make a genuinely empty org, or a query that silently stopped
-        // matching, look like a populated portfolio.
-        setData(docs);
-        setIsLive(true);
-        setLoading(false);
-        setError(null);
-      },
+      orgId,
+      // Once Firebase is configured, Firestore is the truth — including when it
+      // returns nothing. Substituting mock data for an empty result would make a
+      // genuinely empty org, or a query that silently stopped matching, look
+      // like a populated portfolio.
+      (docs) => setState({ key: queryKey, docs, status: "live", error: null }),
       constraints,
-      (err) => {
-        // A failed read is not an empty org. Surface it rather than showing
-        // fabricated numbers a manager might act on.
-        setData([]);
-        setIsLive(false);
-        setLoading(false);
-        setError(err.message);
-      }
+      // A failed read is not an empty org. Surface it rather than showing
+      // fabricated numbers a manager might act on.
+      (err) => setState({ key: queryKey, docs: [], status: "error", error: errorMessage(err) })
     );
 
+    // A subscription that never answers must not leave the screen loading
+    // forever. Fires from a timer rather than the effect body, so it costs a
+    // render only in the case it exists to handle.
     const timeout = setTimeout(() => {
-      setLoading(false);
+      setState((prev) =>
+        prev.key === queryKey && prev.status !== "waiting"
+          ? prev
+          : { key: queryKey, docs: prev.key === queryKey ? prev.docs : [], status: "timeout", error: null }
+      );
     }, 5000);
 
     return () => {
       unsubscribe();
       clearTimeout(timeout);
     };
-  }, [user?.orgId, collectionName, enabled, filterKey]);
+  }, [canSubscribe, orgId, queryKey, collectionName, filterKey]);
+
+  // `setData` stays part of this hook's contract — every list hook below hands
+  // it to callers for optimistic add/edit/remove — so writes go to real state
+  // rather than being derived away. A write also claims the current query, so an
+  // optimistically added row is not discarded as an answer to a stale one.
+  const setData = useCallback<Dispatch<SetStateAction<T[]>>>(
+    (update) => {
+      setState((prev) => applyCollectionWrite(prev, queryKey, fallbackDocs, update));
+    },
+    [queryKey, fallbackDocs]
+  );
+
+  const { data, loading, isLive, error } = resolveCollection({
+    canSubscribe,
+    queryKey,
+    fallbackDocs,
+    state,
+  });
 
   return { data, setData, loading, error, isLive };
 }
@@ -547,20 +580,28 @@ export function useTransactions() {
       useTenantFilter("tenantId")
     );
 
-  const addTransaction = useCallback(async (input: Omit<Transaction, "id" | "createdAt">) => {
+  // orgId is stamped here, like every other hook in this file. It used to be the
+  // caller's job, and the one caller hardcoded "org-1" — so every manually
+  // recorded transaction was written to the demo org: invisible to the manager
+  // who entered it, since reads are scoped to their own orgId, and dropped into
+  // somebody else's books.
+  const addTransaction = useCallback(async (
+    input: Omit<Transaction, "id" | "createdAt" | "orgId">
+  ) => {
+    const txn = { ...input, orgId: user?.orgId || "org-1" };
     try {
-      const id = await createDocument(Collections.TRANSACTIONS, input);
+      const id = await createDocument(Collections.TRANSACTIONS, txn);
       if (!isLive) {
-        setTransactions(prev => [{ ...input, id, createdAt: new Date().toISOString() } as Transaction, ...prev]);
+        setTransactions(prev => [{ ...txn, id, createdAt: new Date().toISOString() } as Transaction, ...prev]);
       }
       return id;
     } catch (err) {
       rethrowIfLive(err);
       const id = `txn-${Date.now()}`;
-      setTransactions(prev => [{ ...input, id, createdAt: new Date().toISOString() } as Transaction, ...prev]);
+      setTransactions(prev => [{ ...txn, id, createdAt: new Date().toISOString() } as Transaction, ...prev]);
       return id;
     }
-  }, [isLive, setTransactions]);
+  }, [user?.orgId, isLive, setTransactions]);
 
   const updateTransaction = useCallback(async (id: string, updates: Partial<Transaction>) => {
     try { await updateDocument(Collections.TRANSACTIONS, id, updates); } catch { /* offline */ }
@@ -1267,24 +1308,28 @@ function sameEmail(a?: string, b?: string): boolean {
 export function useCurrentTenant() {
   const user = useAuthStore((s) => s.user);
   const { tenants, loading: rosterLoading } = useTenants();
-  const [ownRecord, setOwnRecord] = useState<Tenant | null>(null);
-  const [ownLoading, setOwnLoading] = useState(false);
 
   const isTenant = user?.role === "tenant";
+  const tenantId = user?.tenantId;
+  const shouldFetch = isTenant && Boolean(tenantId) && isFirebaseConfigured();
+
+  // Stamped with the tenantId it was fetched for. Whether the record in hand is
+  // about the current user is then a render-time comparison, so the effect never
+  // has to reset state on its way out.
+  const [fetched, setFetched] = useState<{ tenantId: string; record: Tenant | null } | null>(null);
 
   useEffect(() => {
-    if (!isTenant || !user?.tenantId || !isFirebaseConfigured()) {
-      setOwnRecord(null);
-      return;
-    }
+    if (!shouldFetch || !tenantId) return;
     let cancelled = false;
-    setOwnLoading(true);
-    getDocument<Tenant>(Collections.TENANTS, user.tenantId)
-      .then((doc) => { if (!cancelled) setOwnRecord(doc); })
-      .catch(() => { if (!cancelled) setOwnRecord(null); })
-      .finally(() => { if (!cancelled) setOwnLoading(false); });
+    getDocument<Tenant>(Collections.TENANTS, tenantId)
+      .then((doc) => { if (!cancelled) setFetched({ tenantId, record: doc }); })
+      .catch(() => { if (!cancelled) setFetched({ tenantId, record: null }); });
     return () => { cancelled = true; };
-  }, [isTenant, user?.tenantId]);
+  }, [shouldFetch, tenantId]);
+
+  const settled = shouldFetch && Boolean(fetched) && fetched?.tenantId === tenantId;
+  const ownRecord = settled ? (fetched?.record ?? null) : null;
+  const ownLoading = shouldFetch && !settled;
 
   const tenant = useMemo(() => {
     if (!user) return null;

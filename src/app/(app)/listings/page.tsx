@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { CardGridSkeleton } from "@/components/ui/skeleton";
 import { useListings, useUnits, useProperties } from "@/lib/hooks";
 import { generateListingTitle, generateListingDescription, generateSocialCaption, calculateDaysOnMarket, getListingStats } from "@/lib/listing-generator";
 import type { Listing } from "@/lib/types";
@@ -194,7 +195,7 @@ export default function ListingsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-heading lg:text-3xl">Listings & Vacancies</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
-            Manage your {listings.length} listing{listings.length !== 1 ? "s" : ""}
+            {loading ? "Loading listings…" : `Manage your ${listings.length} listing${listings.length !== 1 ? "s" : ""}`}
             <Badge variant="outline" className={`text-[10px] gap-1 ${isLive ? "text-emerald-400 border-emerald-500/30" : "text-amber-400 border-amber-500/30"}`}>
               {isLive ? <><Wifi className="h-2.5 w-2.5" /> Live</> : <><WifiOff className="h-2.5 w-2.5" /> Demo</>}
             </Badge>
@@ -245,6 +246,7 @@ export default function ListingsPage() {
       </div>
 
       {/* Tabs */}
+      {loading ? <CardGridSkeleton count={6} height="h-64" /> : (
       <Tabs defaultValue="all">
         <TabsList>
           <TabsTrigger value="all">All ({listings.length})</TabsTrigger>
@@ -260,6 +262,7 @@ export default function ListingsPage() {
           </TabsContent>
         ))}
       </Tabs>
+      )}
 
       {/* Create Listing Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
