@@ -8,6 +8,7 @@ import { isFirebaseConfigured } from "./demo";
 import { useAuthStore } from "./store";
 import { authedJson } from "./api-client";
 import type { OrgInvite, UserProfile, UserRole } from "./types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * The people in the signed-in user's organization, and the invitations waiting
@@ -40,48 +41,47 @@ const DEMO_MEMBERS: UserProfile[] = [
 
 export function useTeam() {
   const user = useAuthStore((s) => s.user);
-  const [members, setMembers] = useState<UserProfile[]>([]);
-  const [invites, setInvites] = useState<OrgInvite[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const demo = !isFirebaseConfigured();
+  const orgId = user?.orgId;
+
+  // Stamped with the orgId the roster came from, so "is this answer about the
+  // org we are currently asking about" is decided during render rather than by
+  // an effect resetting state synchronously.
+  const [remote, setRemote] = useState<{
+    orgId: string | null;
+    members: UserProfile[];
+    error: string | null;
+  }>({ orgId: null, members: [], error: null });
+  const [remoteInvites, setRemoteInvites] = useState<OrgInvite[]>([]);
 
   useEffect(() => {
-    if (!isFirebaseConfigured()) {
-      setMembers(DEMO_MEMBERS);
-      setInvites([]);
-      setLoading(false);
-      return;
-    }
-    if (!user?.orgId) {
-      setLoading(false);
-      return;
-    }
+    // Demo mode has no backend and a profile with no orgId names no roster.
+    // Both are answered during render below.
+    if (demo || !orgId) return;
 
-    setLoading(true);
     const unsubMembers = onSnapshot(
-      query(collection(db, Collections.USERS), where("orgId", "==", user.orgId)),
+      query(collection(db, Collections.USERS), where("orgId", "==", orgId)),
       (snap) => {
-        setMembers(
-          snap.docs.map((d) => ({ ...d.data(), id: d.id }) as UserProfile)
-        );
-        setLoading(false);
-        setError(null);
+        setRemote({
+          orgId,
+          members: snap.docs.map((d) => ({ ...d.data(), id: d.id }) as UserProfile),
+          error: null,
+        });
       },
       (err) => {
         console.error("[useTeam] members read failed:", err);
-        setError(err.message);
-        setLoading(false);
+        setRemote({ orgId, members: [], error: errorMessage(err) });
       }
     );
 
     const unsubInvites = onSnapshot(
       query(
         collection(db, Collections.INVITES),
-        where("orgId", "==", user.orgId),
+        where("orgId", "==", orgId),
         where("status", "==", "pending")
       ),
       (snap) => {
-        setInvites(snap.docs.map((d) => ({ ...d.data(), id: d.id }) as OrgInvite));
+        setRemoteInvites(snap.docs.map((d) => ({ ...d.data(), id: d.id }) as OrgInvite));
       },
       (err) => console.error("[useTeam] invites read failed:", err)
     );
@@ -90,7 +90,13 @@ export function useTeam() {
       unsubMembers();
       unsubInvites();
     };
-  }, [user?.orgId]);
+  }, [orgId, demo]);
+
+  const settled = remote.orgId === orgId;
+  const members = demo ? DEMO_MEMBERS : settled ? remote.members : [];
+  const invites = demo || !settled ? [] : remoteInvites;
+  const loading = demo || !orgId ? false : !settled;
+  const error = demo || !settled ? null : remote.error;
 
   const invite = useCallback(
     async (input: { email: string; role: UserRole; tenantId?: string; vendorId?: string }) =>

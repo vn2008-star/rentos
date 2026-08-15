@@ -13,6 +13,7 @@ import { loginWithEmail, loginWithGoogle, resetPassword } from "@/lib/auth";
 import { useAuthStore } from "@/lib/store";
 import { isDemoAvailable, type DemoPersona } from "@/lib/demo";
 import Link from "next/link";
+import { errorCode } from "@/lib/errors";
 
 const DEMO_PERSONAS: { persona: DemoPersona; label: string; href: string }[] = [
   { persona: "manager", label: "Manager", href: "/dashboard" },
@@ -30,11 +31,15 @@ const DEMO_PERSONAS: { persona: DemoPersona; label: string; href: string }[] = [
  * page into an open redirect.
  */
 function useNextPath(): string | null {
-  const [next, setNext] = React.useState<string | null>(null);
-  React.useEffect(() => {
+  // Read when the state is first created rather than assigned by an effect on a
+  // second render. Differing from the server render is fine here: this value is
+  // only ever a redirect target and never reaches the DOM, so there is nothing
+  // for hydration to mismatch on.
+  const [next] = React.useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
     const raw = new URLSearchParams(window.location.search).get("next");
-    if (raw && raw.startsWith("/") && !raw.startsWith("//")) setNext(raw);
-  }, []);
+    return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : null;
+  });
   return next;
 }
 
@@ -65,8 +70,8 @@ export default function LoginPage() {
       const profile = await loginWithEmail(email, password);
       setUser(profile);
       router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
-    } catch (err: any) {
-      const code = err?.code || "";
+    } catch (err) {
+      const code = errorCode(err) || "";
       if (code === "auth/user-not-found" || code === "auth/wrong-password" || code === "auth/invalid-credential") {
         setError("Invalid email or password.");
       } else if (code === "auth/too-many-requests") {
@@ -86,8 +91,8 @@ export default function LoginPage() {
       const profile = await loginWithGoogle();
       setUser(profile);
       router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
-    } catch (err: any) {
-      if (err?.code !== "auth/popup-closed-by-user") {
+    } catch (err) {
+      if (errorCode(err) !== "auth/popup-closed-by-user") {
         setError("Google sign-in failed. Please try again.");
       }
     } finally {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Wrench, Loader2, ArrowRight } from "lucide-react";
@@ -21,15 +21,23 @@ import { Label } from "@/components/ui/label";
 export default function ReportRedirectPage() {
   const router = useRouter();
   const [slug, setSlug] = useState("");
-  const [redirecting, setRedirecting] = useState(false);
+
+  // ?org= decides which of the two screens below renders, so it cannot be read
+  // in a lazy state initialiser — this page is public and genuinely
+  // server-rendered, and the client would disagree with the server's HTML.
+  // useSyncExternalStore gives the server a snapshot (no param, so: the form)
+  // and lets the client correct it during hydration. Returns a string, which
+  // compares by value, so the snapshot is stable across calls.
+  const orgParam = useSyncExternalStore(
+    () => () => {},
+    () => new URLSearchParams(window.location.search).get("org"),
+    () => null
+  );
+  const redirecting = Boolean(orgParam);
 
   useEffect(() => {
-    const org = new URLSearchParams(window.location.search).get("org");
-    if (org) {
-      setRedirecting(true);
-      router.replace(`/o/${encodeURIComponent(org)}/report`);
-    }
-  }, [router]);
+    if (orgParam) router.replace(`/o/${encodeURIComponent(orgParam)}/report`);
+  }, [orgParam, router]);
 
   if (redirecting) {
     return (

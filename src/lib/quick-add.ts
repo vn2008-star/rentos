@@ -55,8 +55,15 @@ export function useQuickAdd(target: QuickAddTarget, open: () => void): void {
 
   // Callers pass an inline closure, which changes identity on every render.
   // Held in a ref so the effect below depends only on the intent itself.
+  //
+  // Refreshed in its own effect rather than during render: a ref is not render
+  // state, and writing one while rendering is what makes a component's output
+  // depend on when it happened to re-render. This effect commits before the one
+  // below, so the ref is always current by the time it fires.
   const openRef = useRef(open);
-  openRef.current = open;
+  useEffect(() => {
+    openRef.current = open;
+  });
 
   useEffect(() => {
     if (pending !== target) return;

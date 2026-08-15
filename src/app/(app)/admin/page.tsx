@@ -27,6 +27,7 @@ import { useSupportSession } from "@/lib/use-support-session";
 import { PLANS } from "@/lib/plans";
 import type { PlanId } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * The operator console: every organization on the platform.
@@ -93,18 +94,28 @@ function AdminConsole() {
   // Whose eyes to look through. "staff" is the customer's own dashboard.
   const [viewAs, setViewAs] = useState<ViewAsMode>("staff");
   const [subjectId, setSubjectId] = useState("");
-  const [people, setPeople] = useState<OrgPeople | null>(null);
+  // Stamped with the org it was fetched for, so "no org chosen" and "chosen,
+  // still loading" are both answered during render rather than by an effect
+  // clearing state on the way out.
+  const [fetched, setFetched] = useState<{ orgId: string; people: OrgPeople } | null>(null);
+  const targetId = target?.id ?? null;
 
   // Loaded only once an organization is chosen — the list is that customer's
   // roster, so it is fetched on demand rather than alongside every org.
   useEffect(() => {
-    if (!target) { setPeople(null); return; }
+    if (!targetId) return;
     let cancelled = false;
-    authedJson<OrgPeople>(`/api/admin/org-people?orgId=${encodeURIComponent(target.id)}`)
-      .then((r) => { if (!cancelled) setPeople(r); })
-      .catch(() => { if (!cancelled) setPeople({ tenants: [], vendors: [] }); });
+    authedJson<OrgPeople>(`/api/admin/org-people?orgId=${encodeURIComponent(targetId)}`)
+      .then((r) => { if (!cancelled) setFetched({ orgId: targetId, people: r }); })
+      .catch(() => {
+        if (!cancelled) setFetched({ orgId: targetId, people: { tenants: [], vendors: [] } });
+      });
     return () => { cancelled = true; };
-  }, [target]);
+  }, [targetId]);
+
+  // A roster fetched for a different org is not an answer about this one.
+  const people =
+    targetId && fetched?.orgId === targetId ? fetched.people : null;
 
   const subjects =
     viewAs === "tenant" ? people?.tenants ?? []
@@ -129,8 +140,8 @@ function AdminConsole() {
       router.push(
         viewAs === "tenant" ? "/portal" : viewAs === "contractor" ? "/dashboard" : "/dashboard"
       );
-    } catch (err: any) {
-      toast.error(err?.message || "Could not open the support session.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not open the support session."));
     } finally {
       setOpening(false);
     }
@@ -142,7 +153,7 @@ function AdminConsole() {
   useEffect(() => {
     authedJson<{ orgs: AdminOrg[]; truncated: boolean }>("/api/admin/orgs")
       .then((r) => { setOrgs(r.orgs); setTruncated(r.truncated); })
-      .catch((err) => setError(err?.message || "Could not load organizations."));
+      .catch((err) => setError(errorMessage(err, "Could not load organizations.")));
   }, []);
 
   const totals = (orgs ?? []).reduce(

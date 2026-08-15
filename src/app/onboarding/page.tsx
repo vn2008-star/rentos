@@ -14,6 +14,7 @@ import { useAuthStore } from "@/lib/store";
 import { createOrganization, useOrganization } from "@/lib/use-org";
 import { PLANS, DEFAULT_PLAN, TRIAL_DAYS } from "@/lib/plans";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 const TIMEZONES = [
   "America/Los_Angeles",
@@ -45,19 +46,21 @@ function OnboardingForm() {
   const [name, setName] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [slug, setSlug] = useState("");
-  const [timezone, setTimezone] = useState("America/Los_Angeles");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  // Guess the timezone from the browser, but only as a starting point.
-  useEffect(() => {
+  // Guess the timezone from the browser, but only as a starting point — the
+  // Select below stays editable. Guessed when the state is created rather than
+  // corrected by an effect afterwards; AuthGuard means this form is never in the
+  // server HTML, so there is no server render for it to disagree with.
+  const [timezone, setTimezone] = useState(() => {
     try {
       const guess = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (guess && TIMEZONES.includes(guess)) setTimezone(guess);
+      if (guess && TIMEZONES.includes(guess)) return guess;
     } catch {
       /* keep the default */
     }
-  }, []);
+    return "America/Los_Angeles";
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   // Somebody who already has an organization has no business here.
   useEffect(() => {
@@ -91,8 +94,8 @@ function OnboardingForm() {
 
       toast.success(`${org.name} is ready.`);
       router.replace("/dashboard");
-    } catch (err: any) {
-      setError(err?.message || "Could not create the organization.");
+    } catch (err) {
+      setError(errorMessage(err, "Could not create the organization."));
     } finally {
       setSaving(false);
     }

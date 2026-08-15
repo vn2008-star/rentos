@@ -15,6 +15,7 @@ import toast from "react-hot-toast";
 import { Separator } from "@/components/ui/separator";
 import type { UserRole } from "@/lib/types";
 import Link from "next/link";
+import { errorCode } from "@/lib/errors";
 
 /**
  * Where to go after signing up — an invite link sends people here and expects
@@ -22,11 +23,15 @@ import Link from "next/link";
  * redirect. Read after mount so the page stays statically rendered.
  */
 function useNextPath(): string | null {
-  const [next, setNext] = useState<string | null>(null);
-  React.useEffect(() => {
+  // Read when the state is first created rather than assigned by an effect on a
+  // second render. Differing from the server render is fine here: this value is
+  // only ever a redirect target and never reaches the DOM, so there is nothing
+  // for hydration to mismatch on.
+  const [next] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
     const raw = new URLSearchParams(window.location.search).get("next");
-    if (raw && raw.startsWith("/") && !raw.startsWith("//")) setNext(raw);
-  }, []);
+    return raw && raw.startsWith("/") && !raw.startsWith("//") ? raw : null;
+  });
   return next;
 }
 
@@ -56,8 +61,8 @@ export default function RegisterPage() {
         { duration: 8000 }
       );
       router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
-    } catch (err: any) {
-      const code = err?.code || "";
+    } catch (err) {
+      const code = errorCode(err) || "";
       if (code === "auth/email-already-in-use") { setError("An account with this email already exists."); }
       else if (code === "auth/weak-password") { setError("Password is too weak."); }
       else { setError("Registration failed. Please try again."); }
@@ -73,8 +78,8 @@ export default function RegisterPage() {
       const profile = await loginWithGoogle();
       setUser(profile);
       router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
-    } catch (err: any) {
-      if (err?.code !== "auth/popup-closed-by-user") { setError("Google sign-in failed."); }
+    } catch (err) {
+      if (errorCode(err) !== "auth/popup-closed-by-user") { setError("Google sign-in failed."); }
     } finally {
       setLoading(false);
     }

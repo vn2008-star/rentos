@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePublicOrg } from "@/lib/use-public-org";
 import { PublicOrgHeader, PublicOrgState } from "@/components/public-org-header";
+import { errorMessage } from "@/lib/errors";
 
 const EMPTY_FORM = {
   unitId: "",
@@ -23,16 +24,18 @@ export default function PublicApplyPage() {
   const slug = params?.slug as string;
   const { data, loading, error } = usePublicOrg(slug);
 
-  const [form, setForm] = useState(EMPTY_FORM);
+  // Arriving from a specific vacancy preselects it. Read when the form state is
+  // created rather than patched in by an effect afterwards; the form only ever
+  // renders once `data` has loaded on the client, so there is no server render
+  // for this to disagree with.
+  const [form, setForm] = useState(() => {
+    if (typeof window === "undefined") return EMPTY_FORM;
+    const unit = new URLSearchParams(window.location.search).get("unit");
+    return unit ? { ...EMPTY_FORM, unitId: unit } : EMPTY_FORM;
+  });
   const [saving, setSaving] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitted, setSubmitted] = useState(false);
-
-  // Arriving from a specific vacancy preselects it.
-  useEffect(() => {
-    const unit = new URLSearchParams(window.location.search).get("unit");
-    if (unit) setForm((f) => ({ ...f, unitId: unit }));
-  }, []);
 
   if (!data) return <PublicOrgState loading={loading} error={error} />;
 
@@ -53,8 +56,8 @@ export default function PublicApplyPage() {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || "Could not submit the application.");
       setSubmitted(true);
-    } catch (err: any) {
-      setSubmitError(err?.message || "Could not submit the application.");
+    } catch (err) {
+      setSubmitError(errorMessage(err, "Could not submit the application."));
     } finally {
       setSaving(false);
     }

@@ -41,48 +41,58 @@ export function useFeedback() {
   const homeOrgId = useAuthStore((s) => s.homeOrgId);
   const orgId = homeOrgId ?? user?.orgId ?? "";
 
+  const userId = user?.id;
+  const userRole = user?.role;
+
+  // Whether a subscription is even possible is render-time knowledge, so it is
+  // decided here rather than by an effect that sets loading before bailing out.
+  const canSubscribe = isFirebaseConfigured() && Boolean(userId) && userRole !== "guest";
+
   const [history, setHistory] = useState<Feedback[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [unreadReplies, setUnreadReplies] = useState(0);
 
   // Their own submissions, live — so a reply lands without a reload.
   useEffect(() => {
-    if (!isFirebaseConfigured() || !user?.id || user.role === "guest") return;
+    if (!canSubscribe || !userId) return;
 
-    setLoading(true);
     const unsubscribe = onSnapshot(
-      query(collection(db, Collections.FEEDBACK), where("userId", "==", user.id)),
+      query(collection(db, Collections.FEEDBACK), where("userId", "==", userId)),
       (snap) => {
         const items = snap.docs
           .map((d) => ({ ...d.data(), id: d.id }) as Feedback)
           .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
         setHistory(items);
-        setLoading(false);
+        setLoaded(true);
 
-        const seen = readSeen(user.id);
+        const seen = readSeen(userId);
         setUnreadReplies(
           items.filter((f) => f.adminNotes?.trim() && !seen.includes(f.id)).length
         );
       },
       (err) => {
         console.error("[feedback] could not read history", err);
-        setLoading(false);
+        setLoaded(true);
       }
     );
 
     return unsubscribe;
-  }, [user?.id, user?.role]);
+  }, [userId, canSubscribe]);
 
+  const loading = canSubscribe && !loaded;
+
+  // Depends on `userId` rather than reaching through `user`, so the dependency
+  // the compiler infers is the one written down.
   const markRepliesSeen = useCallback(() => {
-    if (!user?.id) return;
+    if (!userId) return;
     const answered = history.filter((f) => f.adminNotes?.trim()).map((f) => f.id);
     try {
-      localStorage.setItem(seenKey(user.id), JSON.stringify(answered));
+      localStorage.setItem(seenKey(userId), JSON.stringify(answered));
     } catch {
       /* private browsing — the dot just comes back next time */
     }
     setUnreadReplies(0);
-  }, [history, user?.id]);
+  }, [history, userId]);
 
   const submit = useCallback(
     async (input: { type: FeedbackType; message: string; rating: number; page: string }) => {

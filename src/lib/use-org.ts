@@ -10,6 +10,7 @@ import { Collections } from "./firestore";
 import { authedJson } from "./api-client";
 import { planFor } from "./plans";
 import type { Organization } from "./types";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * The signed-in user's organization document.
@@ -21,52 +22,63 @@ import type { Organization } from "./types";
  */
 export function useOrganization() {
   const user = useAuthStore((s) => s.user);
-  const [org, setOrg] = useState<Organization | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Demo mode has no Firestore. Answering "no organization" would send the demo
+  // user into an onboarding flow that cannot possibly complete, so demo mode
+  // gets the mock org and never subscribes to anything.
+  const demo = !isFirebaseConfigured();
+  const orgId = user?.orgId;
+  const [demoOrg, setDemoOrg] = useState<Organization>(mockOrganization);
+
+  // Stamped with the orgId it came from. Whether the snapshot in hand belongs to
+  // the org currently being asked about is then a render-time comparison rather
+  // than something an effect has to reset — which is what let every branch below
+  // stop calling setState synchronously.
+  const [remote, setRemote] = useState<{
+    orgId: string | null;
+    org: Organization | null;
+    error: string | null;
+  }>({ orgId: null, org: null, error: null });
 
   useEffect(() => {
-    // Demo mode has no Firestore. Answering "no organization" here would send
-    // the demo user into an onboarding flow that cannot possibly complete.
-    if (!isFirebaseConfigured()) {
-      setOrg(mockOrganization);
-      setLoading(false);
-      return;
-    }
+    // Nothing to subscribe to: demo mode has no backend, and a profile with no
+    // orgId names no document. Both are settled during render below.
+    if (demo || !orgId) return;
 
-    if (!user?.orgId) {
-      setOrg(null);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
     const unsubscribe = onSnapshot(
-      doc(db, Collections.ORGANIZATIONS, user.orgId),
+      doc(db, Collections.ORGANIZATIONS, orgId),
       (snap) => {
-        setOrg(snap.exists() ? ({ ...snap.data(), id: snap.id } as Organization) : null);
-        setLoading(false);
-        setError(null);
+        setRemote({
+          orgId,
+          org: snap.exists() ? ({ ...snap.data(), id: snap.id } as Organization) : null,
+          error: null,
+        });
       },
       (err) => {
         // A denied read is not "no organization" — treat it as unknown so the
         // gate does not push an existing customer back through onboarding.
         console.error("[useOrganization] read failed:", err);
-        setError(err.message);
-        setLoading(false);
+        setRemote({ orgId, org: null, error: errorMessage(err) });
       }
     );
 
     return unsubscribe;
-  }, [user?.orgId]);
+  }, [orgId, demo]);
+
+  // A snapshot for a different orgId is not an answer about this one — it is the
+  // previous org's document, and showing it would be worse than waiting.
+  const settled = remote.orgId === orgId;
+  const org = demo ? demoOrg : settled ? remote.org : null;
+  const loading = demo || !orgId ? false : !settled;
+  const error = demo || !settled ? null : remote.error;
 
   const plan = useMemo(() => planFor(org?.plan), [org?.plan]);
 
   const saveSettings = useCallback(
     async (patch: Partial<Organization>) => {
       if (!org) throw new Error("No organization loaded");
-      if (!isFirebaseConfigured()) {
-        setOrg({ ...org, ...patch });
+      if (demo) {
+        setDemoOrg({ ...org, ...patch });
         return;
       }
       await updateDoc(doc(db, Collections.ORGANIZATIONS, org.id), {
@@ -74,7 +86,7 @@ export function useOrganization() {
         updatedAt: new Date().toISOString(),
       });
     },
-    [org]
+    [org, demo]
   );
 
   return {

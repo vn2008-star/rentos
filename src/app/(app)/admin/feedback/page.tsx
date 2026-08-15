@@ -17,6 +17,7 @@ import { ROLE_LABELS } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import type { Feedback, FeedbackStatus, FeedbackType } from "@/lib/types";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 /**
  * What customers have told us, across every organization.
@@ -65,12 +66,32 @@ function FeedbackCenter() {
       );
       setItems(r.feedback);
       setCounts(r.counts);
-    } catch (err: any) {
-      setError(err?.message || "Could not load feedback.");
+    } catch (err) {
+      setError(errorMessage(err, "Could not load feedback."));
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Awaited inline rather than calling load(), so it is visible that every
+  // setState happens after the fetch resolves rather than during the effect
+  // itself. The cancelled flag is the part the previous `load()` call was
+  // missing: a response arriving after unmount used to set state on a dead
+  // component.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await authedJson<{ feedback: Feedback[]; counts: Record<string, number> }>(
+          "/api/admin/feedback"
+        );
+        if (cancelled) return;
+        setItems(r.feedback);
+        setCounts(r.counts);
+      } catch (err) {
+        if (!cancelled) setError(errorMessage(err, "Could not load feedback."));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const respond = async (id: string, status: FeedbackStatus, adminNotes?: string) => {
     setBusy(true);
@@ -83,8 +104,8 @@ function FeedbackCenter() {
       setReply("");
       await load();
       toast.success(adminNotes ? "Replied." : "Updated.");
-    } catch (err: any) {
-      toast.error(err?.message || "Could not update that.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not update that."));
     } finally {
       setBusy(false);
     }

@@ -17,6 +17,7 @@ import { useAuthStore } from "@/lib/store";
 import { isOwnerOrManagerRole } from "@/lib/roles";
 import { formatPlanPrice } from "@/lib/plans";
 import toast from "react-hot-toast";
+import { errorMessage } from "@/lib/errors";
 
 const TIMEZONES = [
   "America/Los_Angeles", "America/Denver", "America/Phoenix",
@@ -41,8 +42,15 @@ export default function SettingsPage() {
 
   // Seed the form once the organization arrives, and whenever it changes
   // underneath us (another manager editing, or the billing webhook writing).
-  useEffect(() => {
-    if (!org) return;
+  //
+  // Adjusted during render rather than in an effect. React re-runs the render
+  // immediately without committing the discarded one, so the fields are already
+  // correct on the first paint after the org lands — an effect would paint the
+  // empty defaults first and then replace them.
+  const stamp = org ? `${org.id}:${org.updatedAt ?? ""}` : null;
+  const [seededFrom, setSeededFrom] = useState<string | null>(null);
+  if (org && stamp !== seededFrom) {
+    setSeededFrom(stamp);
     setName(org.name);
     setTimezone(org.settings?.timezone ?? "America/Los_Angeles");
     setCurrency(org.settings?.currency ?? "USD");
@@ -50,7 +58,7 @@ export default function SettingsPage() {
     setLateFeeDays(String(org.settings?.lateFeeDays ?? 5));
     setLateFeeEnabled(org.settings?.lateFeeEnabled !== false);
     setPublicIntake(org.settings?.publicIntake !== false);
-  }, [org]);
+  }
 
   const handleSave = async () => {
     if (!org) return;
@@ -69,8 +77,8 @@ export default function SettingsPage() {
         },
       });
       toast.success("Settings saved.");
-    } catch (err: any) {
-      toast.error(err?.message || "Could not save settings.");
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not save settings."));
     } finally {
       setSaving(false);
     }

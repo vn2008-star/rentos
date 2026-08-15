@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useSyncExternalStore } from "react";
 import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -9,16 +9,46 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+/**
+ * Browser facts this component renders from — display mode and platform.
+ *
+ * Both go through useSyncExternalStore rather than an effect that assigns state.
+ * They decide whether anything renders at all, so reading them in a lazy state
+ * initialiser would make the client's first render disagree with the server's
+ * and break hydration; assigning them in an effect is the cascading render the
+ * compiler objects to. The server snapshot is the conservative answer: not
+ * standalone, not iOS, which renders nothing until the client says otherwise.
+ */
+const NO_SUBSCRIBE = () => () => {};
+
+function useIsStandalone(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia("(display-mode: standalone)");
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia("(display-mode: standalone)").matches,
+    () => false
+  );
+}
+
+function useIsIOS(): boolean {
+  // Never changes for the life of the page, so there is nothing to subscribe to.
+  return useSyncExternalStore(
+    NO_SUBSCRIBE,
+    () => /iPad|iPhone|iPod/.test(navigator.userAgent),
+    () => false
+  );
+}
+
 export function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
+  const isIOS = useIsIOS();
+  const isStandalone = useIsStandalone();
 
   useEffect(() => {
-    setIsStandalone(window.matchMedia("(display-mode: standalone)").matches);
-    setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent));
-
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
