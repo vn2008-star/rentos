@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Building2, Home, Users, FileText, Wrench, DollarSign,
@@ -85,6 +85,40 @@ const bottomItems = [
   { label: "Billing", href: "/billing", icon: CreditCard },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
+
+/**
+ * Says "yes, I heard you" on a navigation that is taking a noticeable moment.
+ *
+ * The skeleton this replaces covered every navigation, including the ones that
+ * finish in about 230ms, where blanking a screenful of real content to grey
+ * rectangles reads as slower than doing nothing at all. This covers the other
+ * case: the SSR function cold-starting, measured once at 2.5 seconds, where
+ * doing nothing at all reads as a dead click.
+ *
+ * It is a tint over the item rather than an element in the row, so it cannot
+ * shift the label, collide with a badge, or need a different layout when the
+ * sidebar is collapsed to icons. Always rendered and toggled through visibility
+ * for the same reason — a hint that mounts on click is a hint that moves things
+ * on click.
+ *
+ * The delay lives in CSS, not here: `.nav-hint` waits out a normal navigation
+ * before it begins to fade in, so the common case shows nothing whatsoever. See
+ * globals.css.
+ *
+ * Must be a child of the Link — useLinkStatus reads context that Link provides.
+ */
+function NavPendingHint() {
+  const { pending } = useLinkStatus();
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "nav-hint pointer-events-none absolute inset-0 rounded-lg",
+        pending && "is-pending"
+      )}
+    />
+  );
+}
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -186,6 +220,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
                   )}
                 >
+                  <NavPendingHint />
                   {isActive && (
                     <div className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-full gradient-brand" />
                   )}
@@ -225,12 +260,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 href="/admin"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                  "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                   pathname === "/admin"
                     ? "bg-sidebar-accent text-sidebar-primary"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
                 )}
               >
+                <NavPendingHint />
                 <ShieldCheck className="h-[18px] w-[18px] shrink-0" />
                 {!collapsed && <span>RentOS Admin</span>}
               </Link>
@@ -242,12 +278,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                    "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                     isActive
                       ? "bg-sidebar-accent text-sidebar-primary"
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
                   )}
                 >
+                  <NavPendingHint />
                   <item.icon className="h-[18px] w-[18px] shrink-0" />
                   {!collapsed && <span>{item.label}</span>}
                 </Link>

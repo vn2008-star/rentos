@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Home, CreditCard, Wrench, FileText, LogOut, User } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,24 @@ const navItems = [
   { label: "Maintenance", href: "/portal/maintenance", icon: Wrench },
   { label: "My Lease", href: "/portal/lease", icon: FileText },
 ];
+
+/**
+ * The same delayed navigation hint the staff sidebar uses, for the same reason —
+ * these routes are dynamic too, so a cold SSR function makes a tap look ignored.
+ * See NavPendingHint in components/app-layout.tsx and `.nav-hint` in globals.css.
+ */
+function NavPendingHint() {
+  const { pending } = useLinkStatus();
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "nav-hint pointer-events-none absolute inset-0 rounded-md",
+        pending && "is-pending"
+      )}
+    />
+  );
+}
 
 /**
  * The resident portal's chrome.
@@ -60,12 +78,13 @@ export function TenantShell({ children }: { children: React.ReactNode }) {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                "relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
                 pathname === item.href
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
               )}
             >
+              <NavPendingHint />
               <item.icon className="h-3.5 w-3.5" />
               {item.label}
             </Link>
@@ -90,10 +109,11 @@ export function TenantShell({ children }: { children: React.ReactNode }) {
             key={item.href}
             href={item.href}
             className={cn(
-              "flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] transition-colors",
+              "relative flex flex-col items-center gap-0.5 px-3 py-1 text-[10px] transition-colors",
               pathname === item.href ? "text-primary" : "text-muted-foreground"
             )}
           >
+            <NavPendingHint />
             <item.icon className="h-4 w-4" />
             {item.label}
           </Link>

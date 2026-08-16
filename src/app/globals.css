@@ -165,3 +165,55 @@
     background-clip: text;
   }
 }
+/*
+ * The sidebar's navigation hint — see NavPendingHint in components/app-layout.tsx.
+ *
+ * The whole point of this element is the delay, and the delay lives here rather
+ * than in a timer in React: CSS can start an animation and have it not be
+ * visible yet, which is exactly the behaviour wanted. A navigation that
+ * completes in the normal ~230ms unmounts the pending state before
+ * `nav-hint-in` has begun, so nothing is ever drawn. Only a navigation slow
+ * enough to be worth acknowledging — the SSR function cold-starting — lasts
+ * long enough for the fade to start.
+ *
+ * `visibility: hidden` rather than `display: none` so the element occupies its
+ * position at all times. It is absolutely inset over the nav item, so it has no
+ * layout to shift regardless, but a hint that reserves nothing is a hint that
+ * can be given a size later without anybody remembering why it moved.
+ */
+.nav-hint {
+  background: currentColor;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.nav-hint.is-pending {
+  visibility: visible;
+  /* Fade in, then breathe. Both wait out a normal navigation first. */
+  animation-name: nav-hint-in, nav-hint-pulse;
+  animation-duration: 250ms, 1400ms;
+  animation-delay: 300ms, 550ms;
+  animation-timing-function: ease-out, ease-in-out;
+  animation-iteration-count: 1, infinite;
+  animation-fill-mode: forwards, none;
+}
+
+@keyframes nav-hint-in {
+  to { opacity: 0.1; }
+}
+
+@keyframes nav-hint-pulse {
+  50% { opacity: 0.04; }
+}
+
+/* Someone who has asked for less motion still gets the acknowledgement, just
+   without the breathing. */
+@media (prefers-reduced-motion: reduce) {
+  .nav-hint.is-pending {
+    animation-name: nav-hint-in;
+    animation-duration: 250ms;
+    animation-delay: 300ms;
+    animation-iteration-count: 1;
+    animation-fill-mode: forwards;
+  }
+}
