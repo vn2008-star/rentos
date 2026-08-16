@@ -54,11 +54,26 @@ export function resolveCollection<T>(input: {
   canSubscribe: boolean;
   queryKey: string | null;
   fallbackDocs: T[];
+  /**
+   * Documents another listener has already fetched for this exact query, if any.
+   *
+   * A second component asking the same question is not waiting on anything — the
+   * answer is already in the building. Treating that as a loading state is what
+   * put a skeleton on every screen that shared a collection with the one before
+   * it. Only consulted when this hook's own state does not answer the query, so
+   * a live snapshot in hand always wins.
+   */
+  cachedDocs?: T[] | null;
   state: CollectionState<T>;
 }): ResolvedCollection<T> {
-  const { canSubscribe, queryKey, fallbackDocs, state } = input;
+  const { canSubscribe, queryKey, fallbackDocs, cachedDocs, state } = input;
 
   const answered = state.key === queryKey;
+
+  if (!answered && cachedDocs) {
+    // These came off a real snapshot of this query, so isLive is the truth.
+    return { data: cachedDocs, loading: false, isLive: true, error: null };
+  }
 
   return {
     data: answered ? state.docs : fallbackDocs,

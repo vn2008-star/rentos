@@ -14,7 +14,6 @@ import {
 import { RentosMark } from "@/components/rentos-mark";
 import { Button } from "@/components/ui/button";
 import { PLANS, PLAN_ORDER, TRIAL_LABEL, formatPlanPrice } from "@/lib/plans";
-import { loginAsDemoVisitor } from "@/lib/auth";
 import { errorMessage } from "@/lib/errors";
 
 const features = [
@@ -79,9 +78,15 @@ const pricingPlans = PLAN_ORDER.map((id) => {
 
 export default function LandingPage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuthStore();
+  // Selectors rather than the whole store: this component subscribed to every
+  // field on it, so an unrelated write — a support session, a token refresh —
+  // re-rendered the entire marketing page.
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const setUser = useAuthStore((s) => s.setUser);
-  const [scrollY, setScrollY] = useState(0);
+  // Only whether the page has been scrolled past the nav, not how far. Holding
+  // the pixel offset re-rendered all four hundred lines of this page on every
+  // scroll event, to change one class name that flips once.
+  const [scrolled, setScrolled] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
   const [demoError, setDemoError] = useState("");
 
@@ -93,6 +98,11 @@ export default function LandingPage() {
     setDemoLoading(true);
     setDemoError("");
     try {
+      // Imported on click. Statically, this one function pulls firebase/auth
+      // and firestore — roughly half the JavaScript this page used to ship —
+      // into the bundle that has to arrive before any of the copy below is
+      // readable, on behalf of a button most visitors never press.
+      const { loginAsDemoVisitor } = await import("@/lib/auth");
       const profile = await loginAsDemoVisitor();
       setUser(profile);
       router.push("/dashboard");
@@ -102,38 +112,32 @@ export default function LandingPage() {
     }
   };
 
+  // A visitor who is already signed in is sent on to the app. This deliberately
+  // does not gate the render: `isLoading` stays true until the Firebase SDK has
+  // downloaded and answered, and holding a full-screen spinner until then meant
+  // every first-time visitor — nobody this redirect is for — waited on a network
+  // round trip to read the front page.
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      router.replace("/dashboard");
-    }
-  }, [isLoading, isAuthenticated, router]);
+    if (isAuthenticated) router.replace("/dashboard");
+  }, [isAuthenticated, router]);
 
   useEffect(() => {
-    const handleScroll = () => setScrollY(window.scrollY);
+    const handleScroll = () => {
+      const past = window.scrollY > 20;
+      // React bails out of an identical value, but the comparison is cheaper
+      // than the state update that finds out, and this runs on every frame of
+      // every scroll.
+      setScrolled((prev) => (prev === past ? prev : past));
+    };
+    handleScroll();
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-center space-y-4">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl gradient-brand shadow-lg shadow-primary/25 animate-pulse">
-            <RentosMark className="h-8 w-8 text-white" />
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading...
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
       {/* ─── NAV ─── */}
-      <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${scrollY > 20 ? "bg-background/80 backdrop-blur-xl border-b border-border/50 shadow-lg shadow-black/5" : ""}`}>
+      <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${scrolled ? "bg-background/80 backdrop-blur-xl border-b border-border/50 shadow-lg shadow-black/5" : ""}`}>
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="h-9 w-9 rounded-xl gradient-brand flex items-center justify-center shadow-lg shadow-primary/30">

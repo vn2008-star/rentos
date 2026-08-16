@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Building2, Home, Users, FileText, Wrench, DollarSign,
   Megaphone, ArrowLeftRight, Settings, LogOut, ChevronLeft, ChevronRight,
-  Bell, Search, Plus, BedDouble, Menu, X, HardHat, BarChart3, Eye, Briefcase,
+  Search, Plus, BedDouble, Menu, X, HardHat, BarChart3, Eye, Briefcase,
   CalendarDays, ClipboardCheck, CreditCard, ShieldCheck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,6 @@ import { useOrganization } from "@/lib/use-org";
 import { SupportBanner } from "@/components/support-banner";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { useQuickAddStore, type QuickAddTarget } from "@/lib/quick-add";
-import { NotificationBell } from "@/components/notification-bell";
 import { RentosMark } from "@/components/rentos-mark";
 
 /**

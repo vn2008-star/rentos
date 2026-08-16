@@ -9,12 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { registerWithEmail, loginWithGoogle } from "@/lib/auth";
 import { useAuthStore } from "@/lib/store";
 import toast from "react-hot-toast";
 import { Separator } from "@/components/ui/separator";
 import type { UserRole } from "@/lib/types";
 import Link from "next/link";
+
+/** The Firebase SDK, fetched alongside the form rather than ahead of it. */
+const loadAuth = () => import("@/lib/auth");
 import { errorCode } from "@/lib/errors";
 
 /**
@@ -44,6 +46,13 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // Same reasoning as the sign-in form: the Firebase SDK is half a megabyte
+  // that nothing needs until this form is submitted, so it is fetched beside the
+  // form rather than in front of it.
+  React.useEffect(() => {
+    loadAuth().catch(() => { /* the handlers retry and report properly */ });
+  }, []);
+
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (form.password !== form.confirmPassword) { setError("Passwords don't match."); return; }
@@ -51,6 +60,7 @@ export default function RegisterPage() {
     setLoading(true);
     setError("");
     try {
+      const { registerWithEmail } = await loadAuth();
       const profile = await registerWithEmail(form.email, form.password, form.name, form.role);
       setUser(profile);
       // A tenant whose email matches a record we already hold is linked to it
@@ -75,6 +85,7 @@ export default function RegisterPage() {
     setLoading(true);
     setError("");
     try {
+      const { loginWithGoogle } = await loadAuth();
       const profile = await loginWithGoogle();
       setUser(profile);
       router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));

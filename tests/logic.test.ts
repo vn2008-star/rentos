@@ -1079,6 +1079,45 @@ describe("resolveCollection", () => {
     assert.deepEqual(r.data, EMPTY);
     assert.equal(r.loading, false);
   });
+
+  test("documents another listener already has are an answer, not a loading state", () => {
+    // The second hook to ask for a collection on the same screen, and every
+    // return visit to a page inside the listener's grace period. Waiting here is
+    // what put a skeleton on a screen whose data was already in the building.
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: KEY, fallbackDocs: EMPTY,
+      cachedDocs: REAL, state: waiting(),
+    });
+    assert.deepEqual(r.data, REAL);
+    assert.equal(r.loading, false);
+    // They came off a real snapshot of this query.
+    assert.equal(r.isLive, true);
+    assert.equal(r.error, null);
+  });
+
+  test("this hook's own snapshot beats the shared cache", () => {
+    // Only consulted when state does not answer the query — otherwise an
+    // optimistic write, which lives in state alone, would be rendered away by a
+    // cache entry that predates it.
+    const OWN: Doc[] = [{ id: "own-1" }];
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: KEY, fallbackDocs: EMPTY,
+      cachedDocs: REAL,
+      state: { key: KEY, docs: OWN, status: "live", error: null },
+    });
+    assert.deepEqual(r.data, OWN);
+  });
+
+  test("an empty cache entry is not mistaken for documents", () => {
+    // peekCollection returns null before the first snapshot, and null must fall
+    // through to the normal waiting path rather than resolve as "no records".
+    const r = resolveCollection({
+      canSubscribe: true, queryKey: KEY, fallbackDocs: EMPTY,
+      cachedDocs: null, state: waiting(),
+    });
+    assert.equal(r.loading, true);
+    assert.equal(r.isLive, false);
+  });
 });
 
 describe("applyCollectionWrite", () => {

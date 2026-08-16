@@ -222,6 +222,17 @@ async function getOrCreateUserProfile(user: User): Promise<UserProfile> {
  *
  * Returns true when a link was made, so the caller can re-read the profile.
  */
+/**
+ * Accounts this tab has already put through the claim, so a token refresh does
+ * not repeat it.
+ *
+ * Firebase re-fires the auth listener roughly hourly for the life of the tab,
+ * and for staff — who never have a tenantId to short-circuit on — that meant
+ * asking the server the same question over and over and getting the same "no"
+ * every time.
+ */
+const claimAttempted = new Set<string>();
+
 async function claimTenancy(user: User): Promise<boolean> {
   try {
     const token = await user.getIdToken();
@@ -243,23 +254,58 @@ async function claimTenancy(user: User): Promise<boolean> {
 // Auth State Observer
 // ============================================
 
+/**
+ * Whether asking the server to link this account to a tenancy could possibly
+ * change anything.
+ *
+ * Every "no" here is a network round trip not spent. The email_verified check
+ * mirrors the endpoint's own gate — it refuses an unverified address rather than
+ * hand a stranger someone else's lease — so asking would be answered
+ * "email_unverified" without touching the database. The flag can lag behind
+ * reality for an hour after someone clicks the verification link, which is why
+ * the uid is only marked as attempted when a request is actually made: a stale
+ * false costs a delay, never a permanently unlinked account.
+ */
+function shouldAttemptClaim(user: User, profile: UserProfile): boolean {
+  if (claimAttempted.has(user.uid)) return false;
+  // The demo visitor is not a person and has no tenancy to claim.
+  if (user.isAnonymous || profile.role === "guest") return false;
+  // Already linked to a domain record.
+  if (profile.tenantId || profile.vendorId) return false;
+  return user.emailVerified;
+}
+
 export function onAuthChange(callback: (profile: UserProfile | null) => void) {
   return onAuthStateChanged(auth, async (user) => {
     if (user) {
       try {
-        let profile = await getOrCreateUserProfile(user);
+        const profile = await getOrCreateUserProfile(user);
+
+        // Hand the app its user before anything optional happens. Everything
+        // behind AuthGuard — which is every signed-in screen — renders a
+        // full-screen spinner until this call returns, so whatever else runs in
+        // here is time the customer spends looking at a loading state.
+        callback(profile);
 
         // A tenant a manager entered by hand can just sign up: if their address
-        // matches a Tenant record, the server links the two. Only attempted
-        // when the profile is not already linked, so this costs one request
-        // once rather than on every sign-in. The demo visitor is skipped —
-        // it is not a person, and it has no tenancy to claim.
-        if (!profile.tenantId && !profile.vendorId && profile.role !== "guest") {
-          const linked = await claimTenancy(user);
-          if (linked) profile = await getOrCreateUserProfile(user);
+        // matches a Tenant record, the server links the two, and the profile is
+        // re-read so the app switches to the resident portal.
+        //
+        // This used to be awaited before the callback above, on the reasoning
+        // that an already-linked profile skips it so it costs one request once.
+        // That is true for tenants and contractors and false for everybody else:
+        // staff never have a tenantId, so every page load and every hourly token
+        // refresh blocked the whole app on a cold serverless function that had
+        // no chance of finding anything. Now it runs behind the rendered app and
+        // only reports back in the one case where the answer changes something.
+        if (shouldAttemptClaim(user, profile)) {
+          claimAttempted.add(user.uid);
+          claimTenancy(user)
+            .then(async (linked) => {
+              if (linked) callback(await getOrCreateUserProfile(user));
+            })
+            .catch(() => { /* an unlinked account still works */ });
         }
-
-        callback(profile);
       } catch {
         // Fallback profile from Firebase Auth only. An anonymous session gets
         // the read-only role rather than "manager": the fallback runs when

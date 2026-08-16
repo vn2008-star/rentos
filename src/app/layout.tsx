@@ -1,9 +1,30 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, Space_Grotesk } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import { AuthProvider } from "@/components/auth-provider";
 import { InstallPrompt } from "@/components/install-prompt";
 import { ServiceWorkerRegistrar } from "@/components/sw-registrar";
 import "./globals.css";
+
+/**
+ * Both are variable fonts, so one file per family covers every weight the app
+ * uses — the old stylesheet asked Google for seven static Inter cuts and four of
+ * Space Grotesk, of which 300, 800 and 900 were never used by anything.
+ *
+ * `display: swap` keeps text visible while the file arrives, and next/font emits
+ * the fallback metric overrides that make that swap not move the page.
+ */
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-space-grotesk",
+});
 
 export const metadata: Metadata = {
   title: "RentOS — Property Management Platform",
@@ -32,7 +53,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" data-scroll-behavior="smooth">
+    <html
+      lang="en"
+      className={`dark ${inter.variable} ${spaceGrotesk.variable}`}
+      data-scroll-behavior="smooth"
+    >
       <head>
         {/* Safari ignores the manifest and looks for this by convention. It is
             rendered at 180px, the size iOS actually wants, rather than pointing

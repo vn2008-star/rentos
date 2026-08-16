@@ -8,9 +8,10 @@ import { where, type WhereFilterOp } from "firebase/firestore";
 import { useAuthStore } from "./store";
 import {
   createDocument, queryDocuments, updateDocument, updateDocumentFields,
-  deleteDocument, subscribeToCollection, uploadMultipleFiles, getDocument,
+  deleteDocument, uploadMultipleFiles, getDocument,
   Collections,
 } from "./firestore";
+import { subscribeShared, peekCollection } from "./firestore-subscriptions";
 import { isFirebaseConfigured } from "./demo";
 import {
   mockProperties, mockUnits, mockTenants,
@@ -124,18 +125,24 @@ function useFirestoreCollection<T>(
       where(f.field, f.op, f.value)
     );
 
-    const unsubscribe = subscribeToCollection<T>(
-      collectionName,
-      orgId,
-      // Once Firebase is configured, Firestore is the truth — including when it
-      // returns nothing. Substituting mock data for an empty result would make a
-      // genuinely empty org, or a query that silently stopped matching, look
-      // like a populated portfolio.
-      (docs) => setState({ key: queryKey, docs, status: "live", error: null }),
-      constraints,
-      // A failed read is not an empty org. Surface it rather than showing
-      // fabricated numbers a manager might act on.
-      (err) => setState({ key: queryKey, docs: [], status: "error", error: errorMessage(err) })
+    // Through the shared registry rather than straight to onSnapshot: the hooks
+    // compose, so the same query is routinely asked for by several components on
+    // one screen, and every screen used to re-read its collections from scratch
+    // on every navigation. See src/lib/firestore-subscriptions.ts.
+    const unsubscribe = subscribeShared<T>(
+      queryKey,
+      { collectionName, orgId, constraints },
+      {
+        // Once Firebase is configured, Firestore is the truth — including when
+        // it returns nothing. Substituting mock data for an empty result would
+        // make a genuinely empty org, or a query that silently stopped matching,
+        // look like a populated portfolio.
+        onData: (docs) => setState({ key: queryKey, docs, status: "live", error: null }),
+        // A failed read is not an empty org. Surface it rather than showing
+        // fabricated numbers a manager might act on.
+        onError: (err) =>
+          setState({ key: queryKey, docs: [], status: "error", error: errorMessage(err) }),
+      }
     );
 
     // A subscription that never answers must not leave the screen loading
@@ -155,21 +162,30 @@ function useFirestoreCollection<T>(
     };
   }, [canSubscribe, orgId, queryKey, collectionName, filterKey]);
 
+  // Documents a listener elsewhere has already fetched for this exact query.
+  // Read during render so arriving on a screen that asks something already being
+  // watched shows the data immediately instead of a skeleton and a second copy
+  // of the same read.
+  const cachedDocs = queryKey && state.key !== queryKey ? peekCollection<T>(queryKey) : null;
+
   // `setData` stays part of this hook's contract — every list hook below hands
   // it to callers for optimistic add/edit/remove — so writes go to real state
   // rather than being derived away. A write also claims the current query, so an
   // optimistically added row is not discarded as an answer to a stale one.
   const setData = useCallback<Dispatch<SetStateAction<T[]>>>(
     (update) => {
-      setState((prev) => applyCollectionWrite(prev, queryKey, fallbackDocs, update));
+      setState((prev) =>
+        applyCollectionWrite(prev, queryKey, cachedDocs ?? fallbackDocs, update)
+      );
     },
-    [queryKey, fallbackDocs]
+    [queryKey, fallbackDocs, cachedDocs]
   );
 
   const { data, loading, isLive, error } = resolveCollection({
     canSubscribe,
     queryKey,
     fallbackDocs,
+    cachedDocs,
     state,
   });
 

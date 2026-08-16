@@ -9,11 +9,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { loginWithEmail, loginWithGoogle, resetPassword } from "@/lib/auth";
 import { useAuthStore } from "@/lib/store";
 import { isDemoAvailable, type DemoPersona } from "@/lib/demo";
 import Link from "next/link";
 import { errorCode } from "@/lib/errors";
+
+/**
+ * The Firebase SDK, fetched alongside the form rather than ahead of it.
+ *
+ * Statically imported, `@/lib/auth` puts firebase/auth and — through
+ * ./firebase — firestore and storage in front of the sign-in form: about half a
+ * megabyte of JavaScript that has to arrive, parse and run before a person can
+ * type their email. None of it is needed until they submit. The effect below
+ * starts the fetch as soon as the form is on screen, so by the time anyone has
+ * finished typing it has long since arrived; the bundler caches the module, so
+ * the handlers' own await resolves instantly.
+ */
+const loadAuth = () => import("@/lib/auth");
 
 const DEMO_PERSONAS: { persona: DemoPersona; label: string; href: string }[] = [
   { persona: "manager", label: "Manager", href: "/dashboard" },
@@ -62,11 +74,18 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [resetSent, setResetSent] = useState(false);
 
+  // Warm the auth chunk once the form is interactive, so submitting does not
+  // wait on a download that could have happened while the person was typing.
+  React.useEffect(() => {
+    loadAuth().catch(() => { /* the handlers retry and report properly */ });
+  }, []);
+
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
     try {
+      const { loginWithEmail } = await loadAuth();
       const profile = await loginWithEmail(email, password);
       setUser(profile);
       router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
@@ -88,6 +107,7 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
+      const { loginWithGoogle } = await loadAuth();
       const profile = await loginWithGoogle();
       setUser(profile);
       router.push(nextPath ?? (profile.role === "tenant" ? "/portal" : "/dashboard"));
@@ -106,6 +126,7 @@ export default function LoginPage() {
       return;
     }
     try {
+      const { resetPassword } = await loadAuth();
       await resetPassword(email);
       setResetSent(true);
       setError("");

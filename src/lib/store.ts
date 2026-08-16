@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type { SupportSession, UserProfile, UserRole } from "./types";
-import { onAuthChange, logout as firebaseLogout } from "./auth";
 import {
   clearDemoSession, getDemoUser, isDemoAvailable,
   loadDemoSession, saveDemoSession, type DemoPersona,
@@ -122,12 +121,23 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    // Shared Firestore listeners outlive the component that opened them by
+    // design, so signing out has to say so explicitly — otherwise the next
+    // person to sign in on this device is briefly shown the previous account's
+    // documents out of the cache. Dynamically imported for the same reason the
+    // auth listener is: neither belongs in the bundle of a page that has not
+    // signed anybody in yet.
+    import("./firestore-subscriptions")
+      .then(({ clearCollectionCache }) => clearCollectionCache())
+      .catch(() => { /* nothing cached to clear */ });
+
     if (get().isDemo) {
       clearDemoSession();
       set({ user: null, isAuthenticated: false, isDemo: false });
       return;
     }
     try {
+      const { logout: firebaseLogout } = await import("./auth");
       await firebaseLogout();
     } catch (err) {
       console.error("Logout error:", err);
@@ -157,13 +167,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     }
 
+    // Imported here rather than at the top of the file so the Firebase SDK is
+    // not in the critical path of every page that merely reads `user` from this
+    // store. Statically, ./auth pulls in firebase/auth and — through
+    // ./firebase — firestore and storage as well: about half a megabyte of
+    // JavaScript that the marketing page, the login form and the public
+    // listing pages had to download and parse before they could show anything.
+    // Now it is fetched alongside the first render instead of ahead of it.
+    //
     // Through setUser, not a bare set: the listener fires on every token
     // refresh, and writing the raw profile would quietly drop an operator out of
     // a support session an hour into it.
-    const unsubscribe = onAuthChange((profile) => {
-      get().setUser(profile);
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
+
+    import("./auth").then(({ onAuthChange }) => {
+      if (cancelled) return;
+      unsubscribe = onAuthChange((profile) => {
+        get().setUser(profile);
+      });
+    }).catch((err) => {
+      // Nothing can sign in, but the app must not sit on a spinner forever
+      // because a chunk failed to load.
+      console.error("Could not start the auth listener", err);
+      set({ isLoading: false });
     });
 
-    return unsubscribe;
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   },
 }));
