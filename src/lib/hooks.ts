@@ -9,8 +9,11 @@ import { useAuthStore } from "./store";
 import {
   createDocument, queryDocuments, updateDocument, updateDocumentFields,
   deleteDocument, uploadMultipleFiles, getDocument,
+  commitBatch, newDocumentId, type BatchWrite,
   Collections,
 } from "./firestore";
+import { unitOccupancyForLease } from "./lease-actions";
+import { authedJson } from "./api-client";
 import { subscribeShared, peekCollection } from "./firestore-subscriptions";
 import { isFirebaseConfigured } from "./demo";
 import {
@@ -362,7 +365,14 @@ export function useTenants() {
     const tenant: Omit<Tenant, "id" | "createdAt" | "updatedAt"> = { orgId, ...input };
 
     try {
-      const id = await createDocument(Collections.TENANTS, tenant);
+      // The id is minted here so the tenant and the unit that now holds them are
+      // written in one commit. Two requests would let the tenant land while the
+      // unit stayed "available" — a vacancy the org would try to let twice.
+      const id = newDocumentId(Collections.TENANTS);
+      await commitBatch([
+        { op: "set", collection: Collections.TENANTS, id, data: tenant },
+        ...occupyWrites(input.unitId, id),
+      ]);
       if (!isLive) {
         setTenants(prev => [...prev, { ...tenant, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as Tenant]);
       }
@@ -376,18 +386,72 @@ export function useTenants() {
   }, [user?.orgId, isLive, setTenants]);
 
   const editTenant = useCallback(async (id: string, updates: Partial<Tenant>) => {
-    try { await updateDocument(Collections.TENANTS, id, updates); } catch { /* offline */ }
+    const before = tenants.find(t => t.id === id);
+    // Moving somebody between units has to free the one they left, or the org
+    // ends up with a unit nobody lives in that it can never re-let.
+    const movingUnit =
+      updates.unitId !== undefined && updates.unitId !== (before?.unitId ?? undefined);
+
+    try {
+      await commitBatch([
+        { op: "update", collection: Collections.TENANTS, id, data: updates },
+        ...(movingUnit
+          ? [
+              ...(await vacateWrites(before?.unitId, id)),
+              ...occupyWrites(updates.unitId, id),
+            ]
+          : []),
+      ]);
+    } catch (err) {
+      rethrowIfLive(err);
+    }
     if (!isLive) {
       setTenants(prev => prev.map(t => t.id === id ? { ...t, ...updates, updatedAt: new Date().toISOString() } : t));
     }
-  }, [isLive, setTenants]);
+  }, [tenants, isLive, setTenants]);
 
   const removeTenant = useCallback(async (id: string) => {
-    try { await deleteDocument(Collections.TENANTS, id); } catch { /* offline */ }
+    const before = tenants.find(t => t.id === id);
+    try {
+      await commitBatch([
+        ...(await vacateWrites(before?.unitId, id)),
+        { op: "delete", collection: Collections.TENANTS, id },
+      ]);
+    } catch { /* offline */ }
     setTenants(prev => prev.filter(t => t.id !== id));
-  }, [setTenants]);
+  }, [tenants, setTenants]);
 
   return { tenants, loading, isLive, addTenant, editTenant, removeTenant };
+}
+
+/** Marks a unit as held by this tenant. Nothing to do when there is no unit. */
+function occupyWrites(unitId: string | undefined, tenantId: string): BatchWrite[] {
+  if (!unitId) return [];
+  return [{
+    op: "update",
+    collection: Collections.UNITS,
+    id: unitId,
+    data: { status: "occupied" satisfies UnitStatus, currentTenantId: tenantId },
+  }];
+}
+
+/**
+ * Releases a unit the tenant is leaving — but only if it still names them.
+ *
+ * The read is what makes this safe to call on stale data: a unit already
+ * re-let to somebody else must not be emptied out by the previous tenant's
+ * record being tidied up afterwards.
+ */
+async function vacateWrites(unitId: string | undefined, tenantId: string): Promise<BatchWrite[]> {
+  if (!unitId) return [];
+  const unit = await getDocument<Unit>(Collections.UNITS, unitId).catch(() => null);
+  if (unit && unit.currentTenantId && unit.currentTenantId !== tenantId) return [];
+  return [{
+    op: "update",
+    collection: Collections.UNITS,
+    id: unitId,
+    data: { status: "available" satisfies UnitStatus, currentTenantId: "", currentLeaseId: "" },
+  }];
 }
 
 // ============================================
@@ -577,11 +641,76 @@ export function useLeases() {
     setLeases(prev => prev.filter(l => l.id !== id));
   }, [setLeases]);
 
-  const activateLease = useCallback(async (id: string) => {
-    await updateLease(id, { status: "active" });
-  }, [updateLease]);
+  /**
+   * Makes a lease live, and the records that depend on it agree.
+   *
+   * Activation is not one field. A signed lease means the unit is occupied by
+   * these people and the tenants know which lease and unit are theirs — and the
+   * dashboard's occupancy rate, the analytics revenue and the add-tenant dialog
+   * all read those. Setting only `status` left a signed tenancy sitting on a
+   * unit the org still advertised as vacant.
+   */
+  const activateLease = useCallback(async (id: string, extra: Partial<Lease> = {}) => {
+    const lease = leases.find(l => l.id === id);
+    const updates: Partial<Lease> = { ...extra, status: "active" };
 
-  return { leases, loading, isLive, addLease, updateLease, removeLease, activateLease };
+    try {
+      await commitBatch([
+        { op: "update", collection: Collections.LEASES, id, data: updates },
+        ...(lease?.unitId
+          ? [{
+              op: "update" as const,
+              collection: Collections.UNITS,
+              id: lease.unitId,
+              data: unitOccupancyForLease({ id, tenantIds: lease.tenantIds }, new Date().toISOString()),
+            }]
+          : []),
+        ...(lease?.tenantIds ?? []).map((tenantId) => ({
+          op: "update" as const,
+          collection: Collections.TENANTS,
+          id: tenantId,
+          data: { leaseId: id, unitId: lease?.unitId, propertyId: lease?.propertyId },
+        })),
+      ]);
+    } catch (err) {
+      rethrowIfLive(err);
+    }
+    setLeases(prev => prev.map(l => l.id === id ? { ...l, ...updates, updatedAt: new Date().toISOString() } : l));
+  }, [leases, setLeases]);
+
+  /**
+   * A resident signing their own lease.
+   *
+   * Through the server, because the rules give lease writes to staff only — and
+   * rightly so, since rent and term are not a tenant's to edit. Writing straight
+   * to Firestore from the portal was denied every time, and the denial was
+   * swallowed as "offline": the resident was congratulated on signing a lease
+   * that had not moved.
+   */
+  const signLease = useCallback(async (leaseId: string, signatureUrl: string) => {
+    const result = await authedJson<{ leaseId: string; status: LeaseStatus; activated: boolean }>(
+      "/api/leases/sign",
+      { method: "POST", body: JSON.stringify({ leaseId, signatureUrl }) }
+    );
+    // The live subscription brings the real document back; this is only so the
+    // screen does not sit unchanged in the moment before it arrives.
+    setLeases(prev => prev.map(l => l.id === leaseId ? { ...l, status: result.status } : l));
+    return result;
+  }, [setLeases]);
+
+  /** A resident answering a renewal offer. Server-side for the same reason. */
+  const respondToRenewal = useCallback(async (leaseId: string, decision: "accepted" | "declined") => {
+    await authedJson<{ leaseId: string; renewalDecision: string }>("/api/leases/renewal", {
+      method: "POST",
+      body: JSON.stringify({ leaseId, decision }),
+    });
+    setLeases(prev => prev.map(l => l.id === leaseId ? { ...l, renewalDecision: decision } : l));
+  }, [setLeases]);
+
+  return {
+    leases, loading, isLive, addLease, updateLease, removeLease, activateLease,
+    signLease, respondToRenewal,
+  };
 }
 
 // ============================================

@@ -53,7 +53,40 @@ function DropdownMenuGroup({ ...props }: MenuPrimitive.Group.Props) {
   return <MenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
 }
 
+const labelClasses =
+  "px-1.5 py-1 text-xs font-medium text-muted-foreground data-inset:pl-7"
+
+/**
+ * A heading inside a menu.
+ *
+ * Deliberately a plain `<div>` rather than Base UI's `Menu.GroupLabel`, which
+ * reads a context only `<Menu.Group>` provides and *throws* without one —
+ * taking the whole app down with it the moment the menu opens. Every caller
+ * here uses this the shadcn way, as a standalone heading.
+ *
+ * When the label really does name a group of items, use
+ * `DropdownMenuGroupLabel` inside a `DropdownMenuGroup`: that one is the
+ * Base UI part, and it wires up the group's `aria-labelledby`.
+ */
 function DropdownMenuLabel({
+  className,
+  inset,
+  ...props
+}: React.ComponentProps<"div"> & {
+  inset?: boolean
+}) {
+  return (
+    <div
+      data-slot="dropdown-menu-label"
+      data-inset={inset}
+      role="presentation"
+      className={cn(labelClasses, className)}
+      {...props}
+    />
+  )
+}
+
+function DropdownMenuGroupLabel({
   className,
   inset,
   ...props
@@ -62,12 +95,9 @@ function DropdownMenuLabel({
 }) {
   return (
     <MenuPrimitive.GroupLabel
-      data-slot="dropdown-menu-label"
+      data-slot="dropdown-menu-group-label"
       data-inset={inset}
-      className={cn(
-        "px-1.5 py-1 text-xs font-medium text-muted-foreground data-inset:pl-7",
-        className
-      )}
+      className={cn(labelClasses, className)}
       {...props}
     />
   )
@@ -256,6 +286,7 @@ export {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuLabel,
+  DropdownMenuGroupLabel,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
   DropdownMenuRadioGroup,

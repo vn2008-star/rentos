@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
-  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem,
+  DropdownMenuGroup, DropdownMenuGroupLabel, DropdownMenuSeparator, DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/lib/store";
 import { useApplications, useMaintenance } from "@/lib/hooks";
@@ -379,23 +379,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   }
                 />
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>Add new</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {quickAddItems.map((item) => (
-                    <DropdownMenuItem
-                      key={item.target}
-                      className="cursor-pointer gap-2.5"
-                      onClick={() => {
-                        // The dialog lives on the destination page; the store
-                        // carries the intent across the navigation.
-                        requestQuickAdd(item.target);
-                        router.push(item.href);
-                      }}
-                    >
-                      <item.icon className="h-4 w-4 text-muted-foreground" />
-                      {item.label}
-                    </DropdownMenuItem>
-                  ))}
+                  <DropdownMenuGroup>
+                    <DropdownMenuGroupLabel>Add new</DropdownMenuGroupLabel>
+                    <DropdownMenuSeparator />
+                    {quickAddItems.map((item) => (
+                      <DropdownMenuItem
+                        key={item.target}
+                        className="cursor-pointer gap-2.5"
+                        onClick={() => {
+                          // The dialog lives on the destination page; the store
+                          // carries the intent across the navigation.
+                          requestQuickAdd(item.target);
+                          router.push(item.href);
+                        }}
+                      >
+                        <item.icon className="h-4 w-4 text-muted-foreground" />
+                        {item.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
               </>

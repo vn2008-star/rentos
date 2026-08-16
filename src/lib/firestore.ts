@@ -1,6 +1,6 @@
 import {
   collection, doc, addDoc, getDoc, getDocs, updateDoc, deleteDoc,
-  query, where, orderBy, limit, serverTimestamp,
+  query, where, orderBy, limit, serverTimestamp, writeBatch,
   type DocumentData, type QueryConstraint, onSnapshot, type Unsubscribe,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -125,6 +125,57 @@ export async function deleteDocument(
 ): Promise<void> {
   assertWritable();
   await deleteDoc(doc(db, collectionName, docId));
+}
+
+// ============================================
+// Writes that must land together
+// ============================================
+
+/**
+ * An id for a document that does not exist yet.
+ *
+ * Firestore generates ids client-side, which is what lets a batch write a new
+ * record and the cross-links pointing at it in the same commit.
+ */
+export function newDocumentId(collectionName: string): string {
+  return doc(collection(db, collectionName)).id;
+}
+
+export type BatchWrite =
+  | { op: "set"; collection: string; id: string; data: DocumentData }
+  | { op: "update"; collection: string; id: string; data: Partial<DocumentData> }
+  | { op: "delete"; collection: string; id: string };
+
+/**
+ * Commits several writes atomically — all of them, or none.
+ *
+ * Assignment is the case this exists for. Moving a tenant into a unit means
+ * writing the tenant and marking the unit occupied, and doing those as two
+ * requests leaves a real failure mode: the tenant lands, the unit write is
+ * denied or dropped, and a unit somebody lives in stays listed as available
+ * until it is let a second time. Occupancy is not cosmetic — the dashboard's
+ * occupancy rate, the analytics revenue and the rent roll all count it.
+ */
+export async function commitBatch(writes: BatchWrite[]): Promise<void> {
+  if (writes.length === 0) return;
+  assertWritable();
+
+  const batch = writeBatch(db);
+  for (const write of writes) {
+    const ref = doc(db, write.collection, write.id);
+    if (write.op === "delete") {
+      batch.delete(ref);
+    } else if (write.op === "set") {
+      batch.set(ref, {
+        ...write.data,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      batch.update(ref, { ...write.data, updatedAt: serverTimestamp() });
+    }
+  }
+  await batch.commit();
 }
 
 // ============================================

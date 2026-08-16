@@ -15,6 +15,7 @@ import { useLeases, useProperties, useUnits, useTenants } from "@/lib/hooks";
 import { ESignature } from "@/components/e-signature";
 import type { Lease, LeaseStatus } from "@/lib/types";
 import { format, differenceInDays, parseISO } from "date-fns";
+import { errorMessage } from "@/lib/errors";
 import toast from "react-hot-toast";
 import { useQuickAdd } from "@/lib/quick-add";
 
@@ -93,10 +94,16 @@ export default function LeasesPage() {
     if (!selectedLease) return;
     const tenantId = selectedLease.tenantIds[0];
     const newSigs = [...selectedLease.signatures, { tenantId, signedAt: new Date().toISOString(), signatureUrl: signatureData }];
-    await updateLease(selectedLease.id, { signatures: newSigs, status: "active" });
-    setSelectedLease({ ...selectedLease, signatures: newSigs, status: "active" });
-    setShowSign(false);
-    toast.success("Lease signed and activated!");
+    try {
+      // activateLease rather than a status write: a live lease also means the
+      // unit is occupied and the tenants know which lease is theirs.
+      await activateLease(selectedLease.id, { signatures: newSigs });
+      setSelectedLease({ ...selectedLease, signatures: newSigs, status: "active" });
+      setShowSign(false);
+      toast.success("Lease signed and activated — the unit is now occupied.");
+    } catch (err) {
+      toast.error(errorMessage(err, "The lease could not be activated."));
+    }
   };
 
   const handleRenewalOffer = async (lease: Lease) => {

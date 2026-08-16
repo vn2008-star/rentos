@@ -8,36 +8,55 @@ import { Button } from "@/components/ui/button";
 import { useLeases, useCurrentTenant, useProperties, useUnits } from "@/lib/hooks";
 import { ESignature } from "@/components/e-signature";
 import { format, parseISO, differenceInDays } from "date-fns";
+import { errorMessage } from "@/lib/errors";
 import toast from "react-hot-toast";
 
 export default function TenantLeasePage() {
-  const { leases, updateLease } = useLeases();
+  const { leases, signLease, respondToRenewal } = useLeases();
   const { tenant: myTenant } = useCurrentTenant();
   const { properties } = useProperties();
   const { units } = useUnits();
   const [showSign, setShowSign] = useState(false);
+  const [signing, setSigning] = useState(false);
 
   const myLease = leases.find(l => l.tenantIds.includes(myTenant?.id || ""));
   const myProp = properties.find(p => p.id === myLease?.propertyId);
   const myUnit = units.find(u => u.id === myLease?.unitId);
   const daysRemaining = myLease ? differenceInDays(parseISO(myLease.endDate), new Date()) : 0;
+  const iHaveSigned = !!myLease?.signatures.some(s => s.tenantId === myTenant?.id);
 
+  // Both of these go through the server, which is the only place allowed to
+  // write a lease. Failures are reported: a signature the landlord never
+  // received is not something to congratulate somebody on.
   const handleSign = async (signatureData: string) => {
     if (!myLease || !myTenant) return;
-    const newSigs = [...myLease.signatures, {
-      tenantId: myTenant.id,
-      signedAt: new Date().toISOString(),
-      signatureUrl: signatureData,
-    }];
-    await updateLease(myLease.id, { signatures: newSigs, status: "active" });
-    setShowSign(false);
-    toast.success("Lease signed successfully!");
+    setSigning(true);
+    try {
+      const { activated } = await signLease(myLease.id, signatureData);
+      setShowSign(false);
+      toast.success(
+        activated
+          ? "Lease signed — your tenancy is now active."
+          : "Lease signed. Waiting on the other signatures."
+      );
+    } catch (err) {
+      toast.error(errorMessage(err, "Your signature could not be saved."));
+    } finally {
+      setSigning(false);
+    }
   };
 
   const handleRenewalDecision = async (decision: "accepted" | "declined") => {
     if (!myLease) return;
-    await updateLease(myLease.id, { renewalDecision: decision });
-    toast.success(decision === "accepted" ? "Renewal accepted!" : "Renewal declined");
+    setSigning(true);
+    try {
+      await respondToRenewal(myLease.id, decision);
+      toast.success(decision === "accepted" ? "Renewal accepted!" : "Renewal declined");
+    } catch (err) {
+      toast.error(errorMessage(err, "Your answer could not be saved."));
+    } finally {
+      setSigning(false);
+    }
   };
 
   if (!myLease) {
@@ -138,19 +157,27 @@ export default function TenantLeasePage() {
       <Card className="border-border/50 bg-card/50">
         <CardHeader><CardTitle className="text-sm flex items-center gap-2"><FileSignature className="h-4 w-4" /> Signatures</CardTitle></CardHeader>
         <CardContent>
-          {myLease.signatures.length > 0 ? myLease.signatures.map((sig, i) => (
+          {/* A co-tenant's name is not readable from here — the rules scope a
+              resident to their own record — so the other signatures are
+              acknowledged without being attributed to whoever is looking. */}
+          {myLease.signatures.map((sig, i) => (
             <div key={i} className="flex items-center justify-between py-2">
               <div>
-                <p className="text-sm font-medium">{myTenant?.firstName} {myTenant?.lastName}</p>
+                <p className="text-sm font-medium">
+                  {sig.tenantId === myTenant?.id
+                    ? `${myTenant?.firstName} ${myTenant?.lastName} (you)`
+                    : "Co-tenant"}
+                </p>
                 <p className="text-xs text-muted-foreground">Signed {format(parseISO(sig.signedAt), "MMM d, yyyy h:mm a")}</p>
               </div>
               <CheckCircle2 className="h-5 w-5 text-emerald-400" />
             </div>
-          )) : (
-            <div className="space-y-3">
+          ))}
+          {!iHaveSigned && (
+            <div className="space-y-3 pt-2">
               <p className="text-sm text-muted-foreground">Your signature is required to activate this lease.</p>
               {!showSign && (
-                <Button onClick={() => setShowSign(true)} className="gradient-brand text-white border-0">
+                <Button onClick={() => setShowSign(true)} disabled={signing} className="gradient-brand text-white border-0">
                   <FileSignature className="h-4 w-4 mr-2" /> Sign Lease
                 </Button>
               )}
@@ -180,10 +207,10 @@ export default function TenantLeasePage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Button onClick={() => handleRenewalDecision("accepted")} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              <Button onClick={() => handleRenewalDecision("accepted")} disabled={signing} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                 <CheckCircle2 className="h-4 w-4 mr-1" /> Accept Renewal
               </Button>
-              <Button variant="outline" onClick={() => handleRenewalDecision("declined")}>
+              <Button variant="outline" disabled={signing} onClick={() => handleRenewalDecision("declined")}>
                 Decline
               </Button>
             </div>

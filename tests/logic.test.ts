@@ -29,6 +29,10 @@ import {
 } from "../src/lib/public-sublets";
 import { defaultLeaseTerm, checkMoveIn } from "../src/lib/move-in";
 import {
+  checkTenantSignature, checkRenewalResponse, signingActivatesLease,
+  unitOccupancyForLease,
+} from "../src/lib/lease-actions";
+import {
   resolveCollection, applyCollectionWrite, type CollectionState,
 } from "../src/lib/collection-state";
 import type {
@@ -1153,5 +1157,149 @@ describe("applyCollectionWrite", () => {
       KEY, [], [{ id: "replaced" }]
     );
     assert.deepEqual(next.docs.map((d) => d.id), ["replaced"]);
+  });
+});
+
+// ============================================
+// Lease actions a tenant may take on their own lease
+// ============================================
+
+describe("checkTenantSignature", () => {
+  const ORG_ID = "org-1";
+
+  const lease = (over: Record<string, unknown> = {}) => ({
+    id: "lease-1", orgId: ORG_ID, unitId: "unit-1", propertyId: "prop-1",
+    tenantIds: ["tenant-1"], status: "draft",
+    startDate: "2026-09-01", endDate: "2027-08-31",
+    rentAmount: 1800, securityDeposit: 1800, lateFeePercent: 5,
+    gracePeriodDays: 5, autoRenew: false, documents: [], signatures: [],
+    createdAt: "", updatedAt: "",
+    ...over,
+  }) as unknown as Lease;
+
+  const SIGNATURE = "data:image/png;base64,iVBORw0KGgo=";
+
+  const check = (over: Record<string, unknown> = {}) => checkTenantSignature({
+    lease: lease(), tenantId: "tenant-1", callerOrgId: ORG_ID, signatureUrl: SIGNATURE,
+    ...over,
+  });
+
+  test("the named tenant may sign their own draft lease", () => {
+    assert.deepEqual(check(), { ok: true });
+  });
+
+  test("a lease in another org is not found, not forbidden", () => {
+    assert.equal(check({ lease: lease({ orgId: "org-2" }) }).ok, false);
+    assert.equal(
+      (check({ lease: lease({ orgId: "org-2" }) }) as { status: number }).status,
+      404
+    );
+  });
+
+  test("someone not named on the lease cannot sign it, and cannot tell it exists", () => {
+    const result = check({ tenantId: "tenant-9" }) as { status: number };
+    assert.equal(result.status, 404);
+  });
+
+  test("signing twice is refused rather than stacking duplicates", () => {
+    const signed = lease({
+      signatures: [{ tenantId: "tenant-1", signedAt: "2026-08-01T00:00:00Z", signatureUrl: SIGNATURE }],
+    });
+    assert.equal((check({ lease: signed }) as { status: number }).status, 409);
+  });
+
+  test("a terminated lease cannot be signed", () => {
+    assert.equal((check({ lease: lease({ status: "terminated" }) }) as { status: number }).status, 409);
+  });
+
+  test("anything that is not an image is not a signature", () => {
+    assert.equal((check({ signatureUrl: "https://example.com/sig.png" }) as { status: number }).status, 400);
+    assert.equal((check({ signatureUrl: "" }) as { status: number }).status, 400);
+  });
+
+  test("an oversized signature is refused — the whole lease shares one 1 MB limit", () => {
+    const huge = "data:image/png;base64," + "A".repeat(300_000);
+    assert.equal((check({ signatureUrl: huge }) as { status: number }).status, 413);
+  });
+});
+
+describe("signingActivatesLease", () => {
+  const base = {
+    id: "lease-1", orgId: "org-1", unitId: "unit-1", propertyId: "prop-1",
+    startDate: "", endDate: "", rentAmount: 0, securityDeposit: 0,
+    lateFeePercent: 0, gracePeriodDays: 0, autoRenew: false,
+    documents: [], createdAt: "", updatedAt: "",
+  };
+
+  test("the only tenant signing makes the lease live", () => {
+    const lease = { ...base, status: "draft", tenantIds: ["t1"], signatures: [] } as unknown as Lease;
+    assert.equal(signingActivatesLease(lease, "t1"), true);
+  });
+
+  test("one of two co-tenants signing does not — the other has not agreed yet", () => {
+    const lease = { ...base, status: "draft", tenantIds: ["t1", "t2"], signatures: [] } as unknown as Lease;
+    assert.equal(signingActivatesLease(lease, "t1"), false);
+  });
+
+  test("the last co-tenant signing does", () => {
+    const lease = {
+      ...base, status: "draft", tenantIds: ["t1", "t2"],
+      signatures: [{ tenantId: "t1", signedAt: "", signatureUrl: "" }],
+    } as unknown as Lease;
+    assert.equal(signingActivatesLease(lease, "t2"), true);
+  });
+
+  test("an already-active lease is not re-activated by a late signature", () => {
+    const lease = { ...base, status: "active", tenantIds: ["t1"], signatures: [] } as unknown as Lease;
+    assert.equal(signingActivatesLease(lease, "t1"), false);
+  });
+});
+
+describe("checkRenewalResponse", () => {
+  const ORG_ID = "org-1";
+
+  const lease = (over: Record<string, unknown> = {}) => ({
+    id: "lease-1", orgId: ORG_ID, unitId: "unit-1", propertyId: "prop-1",
+    tenantIds: ["tenant-1"], status: "active",
+    startDate: "", endDate: "", rentAmount: 0, securityDeposit: 0,
+    lateFeePercent: 0, gracePeriodDays: 0, autoRenew: false,
+    documents: [], signatures: [],
+    renewalOffered: true, renewalDecision: "pending",
+    createdAt: "", updatedAt: "",
+    ...over,
+  }) as unknown as Lease;
+
+  const check = (over: Record<string, unknown> = {}) => checkRenewalResponse({
+    lease: lease(), tenantId: "tenant-1", callerOrgId: ORG_ID, decision: "accepted",
+    ...over,
+  });
+
+  test("the tenant may answer an open offer", () => {
+    assert.deepEqual(check(), { ok: true });
+    assert.deepEqual(check({ decision: "declined" }), { ok: true });
+  });
+
+  test("only accepted or declined are answers", () => {
+    assert.equal((check({ decision: "maybe" }) as { status: number }).status, 400);
+  });
+
+  test("an offer nobody made cannot be answered", () => {
+    const result = check({ lease: lease({ renewalOffered: false }) }) as { status: number };
+    assert.equal(result.status, 409);
+  });
+
+  test("an answer already given is not overwritten", () => {
+    const result = check({ lease: lease({ renewalDecision: "declined" }) }) as { status: number };
+    assert.equal(result.status, 409);
+  });
+});
+
+describe("unitOccupancyForLease", () => {
+  test("a live lease names its unit's occupant and lease", () => {
+    const now = "2026-09-01T00:00:00Z";
+    assert.deepEqual(
+      unitOccupancyForLease({ id: "lease-1", tenantIds: ["t1", "t2"] }, now),
+      { status: "occupied", currentTenantId: "t1", currentLeaseId: "lease-1", updatedAt: now }
+    );
   });
 });

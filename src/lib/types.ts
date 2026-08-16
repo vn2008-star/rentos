@@ -340,6 +340,8 @@ export interface Lease {
   signatures: { tenantId: string; signedAt: string; signatureUrl: string }[];
   renewalOffered?: boolean;
   renewalDecision?: "accepted" | "declined" | "pending";
+  /** ISO. When the tenant answered the offer — written by /api/leases/renewal. */
+  renewalRespondedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
