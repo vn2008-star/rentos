@@ -26,6 +26,7 @@ import { useOrganization } from "@/lib/use-org";
 import { SupportBanner } from "@/components/support-banner";
 import { FeedbackWidget } from "@/components/feedback-widget";
 import { useQuickAddStore, type QuickAddTarget } from "@/lib/quick-add";
+import { NotificationBell } from "@/components/notification-bell";
 import { RentosMark } from "@/components/rentos-mark";
 
 /**
@@ -323,6 +324,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   </Button>
                 </>
               ) : (
+              <>
+              {/* Payment failures, urgent repairs, expiring leases — mostly
+                  written by the Stripe webhook, and until now written to a bell
+                  that was imported here and never placed on the page. A guest
+                  is left out for the same reason as Quick Add: the rules let
+                  them read these but not mark one read, so the badge would sit
+                  there refusing to clear. */}
+              <NotificationBell />
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
@@ -352,6 +361,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              </>
               )}
             </div>
           </header>

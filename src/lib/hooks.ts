@@ -1376,23 +1376,31 @@ export function useCurrentTenant() {
  */
 export function useNotifications() {
   const user = useAuthStore((s) => s.user);
-  const { tenant } = useCurrentTenant();
   const { data: all, setData: setAll, loading, isLive } =
     useFirestoreCollection<Notification>(
       Collections.NOTIFICATIONS, mockNotifications, true,
       useTenantFilter("tenantId")
     );
 
+  // The tenantId off the profile rather than through useCurrentTenant, which
+  // this used to call. That hook resolves a tenant's record by fetching the
+  // document this id names — so for a tenant the two agree by construction —
+  // and for everyone else it subscribes to the whole roster to match a record
+  // by email that the manager branch below never looks at. The bell lives in
+  // the staff shell now, on every page, so a roster read per session to compute
+  // a value that branch discards is a real cost for nothing.
+  const ownTenantId = user?.tenantId;
+
   const notifications = useMemo(() => {
     const isTenant = user?.role === "tenant";
     return all
       .filter((n) =>
         isTenant
-          ? n.audience === "tenant" && (!n.tenantId || n.tenantId === tenant?.id)
+          ? n.audience === "tenant" && (!n.tenantId || n.tenantId === ownTenantId)
           : n.audience === "manager"
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [all, user?.role, tenant?.id]);
+  }, [all, user?.role, ownTenantId]);
 
   const unreadCount = useMemo(
     () => notifications.filter((n) => !n.read).length,
