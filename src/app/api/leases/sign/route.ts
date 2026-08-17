@@ -7,6 +7,7 @@ import {
   signingActivatesLease,
   unitOccupancyForLease,
 } from "@/lib/lease-actions";
+import { moveInInspectionFor } from "@/lib/inspection-templates";
 import type { Lease } from "@/lib/types";
 
 /**
@@ -80,6 +81,20 @@ export async function POST(req: NextRequest) {
         : null;
     const unitSnap = unitRef ? await tx.get(unitRef) : null;
 
+    // Whether the move-in walk-through is already booked. Asked before any
+    // write, and only when this signature is the one that makes the tenancy
+    // live — signing a lease somebody already scheduled an inspection for must
+    // not leave two half-filled reports on the same unit.
+    const existingInspections = activates
+      ? await tx.get(
+          db
+            .collection(Collections.INSPECTIONS)
+            .where("leaseId", "==", theLease.id)
+            .where("type", "==", "move_in")
+            .limit(1)
+        )
+      : null;
+
     tx.update(leaseRef, {
       signatures: [
         ...theLease.signatures,
@@ -100,6 +115,24 @@ export async function POST(req: NextRequest) {
           leaseId: theLease.id,
           unitId: theLease.unitId,
           propertyId: theLease.propertyId,
+          updatedAt: now,
+        });
+      }
+
+      // Davis gives five business days from the start of the tenancy for the
+      // joint walk-through, and that clock runs whether or not anybody booked
+      // it. Booking it with the tenancy is the difference between a landlord
+      // who has the evidence at deposit time and one who does not.
+      if (existingInspections?.empty) {
+        const unit = unitSnap?.exists ? (unitSnap.data() as { beds?: number; baths?: number }) : null;
+        tx.set(db.collection(Collections.INSPECTIONS).doc(), {
+          ...moveInInspectionFor({
+            lease: theLease,
+            unit: unit ? { beds: unit.beds ?? 0, baths: unit.baths ?? 0 } : null,
+            inspectorName: "Property manager",
+            now,
+          }),
+          createdAt: now,
           updatedAt: now,
         });
       }

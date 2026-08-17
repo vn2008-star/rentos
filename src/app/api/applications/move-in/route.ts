@@ -3,6 +3,7 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { Collections } from "@/lib/collections";
 import { jsonError, requireStaff } from "@/lib/api-auth";
 import { checkMoveIn, type MoveInRequest } from "@/lib/move-in";
+import { moveInInspectionFor } from "@/lib/inspection-templates";
 import type { Lease, Organization, RentalApplication, Tenant, Unit } from "@/lib/types";
 
 /**
@@ -128,6 +129,21 @@ export async function POST(req: NextRequest) {
 
     tx.set(tenantRef, tenant);
     tx.set(leaseRef, lease);
+
+    // The Davis walk-through, booked with the tenancy it belongs to. No
+    // existence check is needed here the way there is when an existing draft is
+    // signed: this lease is being created in this transaction, so nothing can
+    // already point at it.
+    tx.set(db.collection(Collections.INSPECTIONS).doc(), {
+      ...moveInInspectionFor({
+        lease: { ...lease, id: leaseRef.id },
+        unit: theUnit,
+        inspectorName: guard.caller.profile.displayName || "Property manager",
+        now,
+      }),
+      createdAt: now,
+      updatedAt: now,
+    });
     tx.update(unitRef!, {
       status: "occupied",
       currentTenantId: tenantRef.id,

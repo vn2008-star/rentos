@@ -17,10 +17,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { PhotoUpload } from "@/components/photo-upload";
-import { useInspections, useUnits, useProperties, useTenants, useCalendar } from "@/lib/hooks";
+import { useInspections, useUnits, useProperties, useTenants, useLeases, useCalendar } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 import {
-  DAVIS_MOVE_IN_TEMPLATE, buildDavisMoveInAreas, copyDueBy, outstandingAreas,
+  DAVIS_MOVE_IN_TEMPLATE, buildDavisMoveInAreas, copyDueBy, davisMoveInDeadlines,
+  outstandingAreas,
 } from "@/lib/inspection-templates";
 import type { InspectionType, ItemCondition, InspectionArea } from "@/lib/types";
 import toast from "react-hot-toast";
@@ -58,7 +59,21 @@ export default function InspectionsPage() {
   const { units } = useUnits();
   const { properties } = useProperties();
   const { tenants } = useTenants();
+  const { leases } = useLeases();
   const { addEvent } = useCalendar();
+
+  /**
+   * When Article 18.11 wants this walk-through done: five business days from
+   * the tenancy starting, which is a date only the lease knows. Returned as
+   * null for anything not on the Davis form or not tied to a lease, rather than
+   * inventing a deadline from the date somebody happened to schedule it.
+   */
+  const walkByFor = React.useCallback((inspection: { templateId?: string; leaseId?: string; type: string }) => {
+    if (inspection.templateId !== "davis-move-in" || !inspection.leaseId) return null;
+    const lease = leases.find(l => l.id === inspection.leaseId);
+    if (!lease?.startDate) return null;
+    return davisMoveInDeadlines({ tenancyStart: lease.startDate }).inspectBy || null;
+  }, [leases]);
 
   const [showSchedule, setShowSchedule] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -249,6 +264,11 @@ export default function InspectionsPage() {
         <div className="space-y-3">
           {visible.map(i => {
             const overdue = i.status !== "completed" && new Date(i.scheduledFor) < new Date();
+            const walkBy = walkByFor(i);
+            // Past the statutory date with the walk-through still undone is a
+            // different problem from a missed appointment, and says so.
+            const lateOnStatute =
+              !!walkBy && i.status !== "completed" && walkBy < new Date().toISOString().slice(0, 10);
             return (
               <Card key={i.id} className="border-border/50 bg-card/50 hover:border-border transition-colors">
                 <CardContent className="p-4">
@@ -276,6 +296,16 @@ export default function InspectionsPage() {
                         {i.expectedAreas?.length ? ` of ${i.expectedAreas.length}` : ""} area
                         {i.areas.length === 1 && !i.expectedAreas?.length ? "" : "s"} recorded
                       </p>
+                      {walkBy && i.status !== "completed" && (
+                        <p className={cn(
+                          "text-xs mt-1",
+                          lateOnStatute ? "text-red-400 font-medium" : "text-amber-400"
+                        )}>
+                          {lateOnStatute
+                            ? `Davis Art. 18.11: the joint walk-through was due ${dateOnly(walkBy)}`
+                            : `Davis Art. 18.11: walk it with the tenant by ${dateOnly(walkBy)}`}
+                        </p>
+                      )}
                       {/* The obligation that outlives the walk-through, and the
                           one people forget once the keys are handed over. */}
                       {i.templateId && i.status === "completed" && copyDueBy(i.completedAt) && (
@@ -444,6 +474,12 @@ export default function InspectionsPage() {
                   ) : (
                     <p className="text-[11px] text-emerald-400">
                       Every area on the form has been recorded.
+                    </p>
+                  )}
+                  {open.status !== "completed" && walkByFor(open) && (
+                    <p className="text-[11px] text-amber-300 border-t border-border/30 pt-2">
+                      Davis Art. 18.11: walk this with the tenant by {dateOnly(walkByFor(open)!)} —
+                      five business days from the start of the tenancy.
                     </p>
                   )}
                   {copyDueBy(open.completedAt) && (

@@ -1,4 +1,4 @@
-import type { Unit } from "./types";
+import type { Inspection, Lease, Unit } from "./types";
 
 /**
  * The Davis move-in inventory, as a form the app can actually complete.
@@ -238,6 +238,47 @@ export function davisMoveInDeadlines(input: {
   }
 
   return { inspectBy, copyBy };
+}
+
+/**
+ * The move-in walk-through a lease going live implies.
+ *
+ * Created with the tenancy rather than waiting for somebody to remember, because
+ * the five-business-day clock in Article 18.11 starts whether or not anybody
+ * books it, and a landlord who misses it has lost the evidence that decides the
+ * deposit — not just a box tick.
+ *
+ * Scheduled at 5pm UTC on the start date, which is a working hour across the
+ * Pacific timezone these properties are in. The manager can move it; what
+ * matters is that it exists and carries a date.
+ */
+export function moveInInspectionFor(input: {
+  lease: Pick<Lease, "id" | "orgId" | "unitId" | "propertyId" | "tenantIds" | "startDate">;
+  unit: Pick<Unit, "beds" | "baths"> | null | undefined;
+  inspectorName: string;
+  now: string;
+}): Omit<Inspection, "id" | "createdAt" | "updatedAt"> {
+  const { lease, unit, inspectorName, now } = input;
+  const start = /^\d{4}-\d{2}-\d{2}/.test(lease.startDate)
+    ? `${lease.startDate.slice(0, 10)}T17:00:00.000Z`
+    : now;
+
+  return {
+    orgId: lease.orgId,
+    unitId: lease.unitId,
+    propertyId: lease.propertyId,
+    leaseId: lease.id,
+    // The first named tenant, so the resident can see the report that will be
+    // held against their deposit. Co-tenants read it through the same lease.
+    ...(lease.tenantIds[0] ? { tenantId: lease.tenantIds[0] } : {}),
+    type: "move_in",
+    status: "scheduled",
+    scheduledFor: start,
+    inspectorName,
+    areas: [],
+    templateId: DAVIS_MOVE_IN_TEMPLATE.id,
+    expectedAreas: buildDavisMoveInAreas(unit).map((a) => a.name),
+  };
 }
 
 /**

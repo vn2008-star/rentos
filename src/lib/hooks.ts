@@ -13,6 +13,7 @@ import {
   Collections,
 } from "./firestore";
 import { unitOccupancyForLease } from "./lease-actions";
+import { moveInInspectionFor } from "./inspection-templates";
 import { authedJson } from "./api-client";
 import { subscribeShared, peekCollection } from "./firestore-subscriptions";
 import { isFirebaseConfigured } from "./demo";
@@ -656,8 +657,40 @@ export function useLeases() {
     const lease = leases.find(l => l.id === id);
     const updates: Partial<Lease> = { ...extra, status: "active" };
 
+    // The move-in walk-through Davis requires, booked with the tenancy. Skipped
+    // when one already exists — activating twice, or signing after somebody
+    // scheduled it by hand, must not leave two half-filled reports on one unit.
+    let inspectionWrite: BatchWrite[] = [];
+    if (lease) {
+      const existing = await queryDocuments<Inspection>(
+        Collections.INSPECTIONS,
+        lease.orgId,
+        [where("leaseId", "==", id), where("type", "==", "move_in")],
+        1
+      ).catch(() => [] as Inspection[]);
+
+      if (existing.length === 0) {
+        // Read rather than guessed: the bedroom and bathroom counts decide the
+        // shape of the form, and getting them wrong bakes a wrong checklist
+        // into the record permanently.
+        const unit = await getDocument<Unit>(Collections.UNITS, lease.unitId).catch(() => null);
+        inspectionWrite = [{
+          op: "set",
+          collection: Collections.INSPECTIONS,
+          id: newDocumentId(Collections.INSPECTIONS),
+          data: moveInInspectionFor({
+            lease,
+            unit,
+            inspectorName: user?.displayName || "Property manager",
+            now: new Date().toISOString(),
+          }),
+        }];
+      }
+    }
+
     try {
       await commitBatch([
+        ...inspectionWrite,
         { op: "update", collection: Collections.LEASES, id, data: updates },
         ...(lease?.unitId
           ? [{

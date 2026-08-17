@@ -39,7 +39,7 @@ import {
 } from "../src/lib/lease-templates";
 import {
   buildDavisMoveInAreas, addBusinessDays, davisMoveInDeadlines, copyDueBy,
-  outstandingAreas,
+  outstandingAreas, moveInInspectionFor,
 } from "../src/lib/inspection-templates";
 import {
   resolveCollection, applyCollectionWrite, type CollectionState,
@@ -1636,5 +1636,62 @@ describe("outstandingAreas", () => {
 
   test("a fully walked form is empty", () => {
     assert.deepEqual(outstandingAreas(["Kitchen"], [{ name: "Kitchen" }]), []);
+  });
+});
+
+describe("moveInInspectionFor", () => {
+  const baseLease = {
+    id: "lease-1", orgId: "org-1", unitId: "unit-1", propertyId: "prop-1",
+    tenantIds: ["tenant-1", "tenant-2"], startDate: "2026-09-01",
+  };
+
+  const build = (over: Record<string, unknown> = {}) => moveInInspectionFor({
+    lease: baseLease,
+    unit: { beds: 2, baths: 1 },
+    inspectorName: "Alex Rivera",
+    now: "2026-08-16T12:00:00.000Z",
+    ...over,
+  });
+
+  test("the walk-through lands on the day the tenancy starts", () => {
+    assert.equal(build().scheduledFor, "2026-09-01T17:00:00.000Z");
+  });
+
+  test("it is the Davis form, shaped to the unit", () => {
+    const inspection = build();
+    assert.equal(inspection.templateId, "davis-move-in");
+    assert.equal(inspection.type, "move_in");
+    assert.equal(inspection.status, "scheduled");
+    assert.ok(inspection.expectedAreas?.includes("Bedroom 2"));
+    assert.ok(!inspection.expectedAreas?.includes("Bedroom 3"));
+  });
+
+  test("it points back at the lease and the first tenant, so the resident can read it", () => {
+    const inspection = build();
+    assert.equal(inspection.leaseId, "lease-1");
+    assert.equal(inspection.tenantId, "tenant-1");
+    assert.equal(inspection.unitId, "unit-1");
+    assert.equal(inspection.orgId, "org-1");
+  });
+
+  test("a lease with no tenants yet carries no tenantId rather than an empty one", () => {
+    const inspection = build({ lease: { ...baseLease, tenantIds: [] } });
+    assert.equal("tenantId" in inspection, false);
+  });
+
+  test("a missing unit record still produces a usable form", () => {
+    const inspection = build({ unit: null });
+    assert.ok((inspection.expectedAreas?.length ?? 0) > 10);
+  });
+
+  test("a malformed start date falls back to now instead of an invalid date", () => {
+    const inspection = build({ lease: { ...baseLease, startDate: "" } });
+    assert.equal(inspection.scheduledFor, "2026-08-16T12:00:00.000Z");
+  });
+
+  test("the deadline the record implies is five business days from the start", () => {
+    const { inspectBy } = davisMoveInDeadlines({ tenancyStart: baseLease.startDate });
+    // Tue 1 Sep 2026 → Tue 8 Sep 2026, the weekend skipped.
+    assert.equal(inspectBy, "2026-09-08");
   });
 });
