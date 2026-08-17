@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/lib/store";
 import { useApplications, useMaintenance } from "@/lib/hooks";
+import { useSetupProgress } from "@/lib/use-setup";
 import { useOrganization } from "@/lib/use-org";
 import { SupportBanner } from "@/components/support-banner";
 import { FeedbackWidget } from "@/components/feedback-widget";
@@ -40,7 +41,7 @@ const navItems: {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
-  badgeKey?: "applications" | "maintenance";
+  badgeKey?: "applications" | "maintenance" | "setup";
 }[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Properties", href: "/properties", icon: Building2 },
@@ -80,8 +81,24 @@ const quickAddItems: {
   { label: "Vendor", href: "/vendors", target: "vendor", icon: HardHat },
 ];
 
+/**
+ * The setup guide, which moves.
+ *
+ * While an org still has steps left it sits above Dashboard, where a first-time
+ * user looks: a dashboard of zeroes is exactly the screen that cannot explain
+ * itself, and a guide filed under Settings is one nobody finds on the day they
+ * need it. Once the required steps are done it drops to the bottom section with
+ * the other things you consult rather than work from — permanent top billing
+ * for a finished checklist is how a sidebar becomes noise.
+ */
+const setupItem = {
+  label: "Getting started",
+  href: "/getting-started",
+  icon: Rocket,
+  badgeKey: "setup" as const,
+};
+
 const bottomItems = [
-  { label: "Getting started", href: "/getting-started", icon: Rocket },
   { label: "Team", href: "/team", icon: Users },
   { label: "Billing", href: "/billing", icon: CreditCard },
   { label: "Settings", href: "/settings", icon: Settings },
@@ -134,6 +151,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const { applications } = useApplications();
   const { requests: maintenanceRequests } = useMaintenance();
+  const setup = useSetupProgress();
+
+  // Above Dashboard only while there is something left to do — and never on the
+  // strength of reads still in flight, which would put it there for a moment on
+  // every page load of a fully set-up org.
+  const setupPending = !setup.loading && !setup.complete;
+  const sidebarItems = setupPending ? [setupItem, ...navItems] : navItems;
 
   // What is actually waiting for someone: applications still awaiting a
   // decision, and maintenance that is not finished. A badge showing every
@@ -145,6 +169,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     maintenance: maintenanceRequests.filter(
       (r) => !["completed", "closed"].includes(r.status)
     ).length,
+    setup: setup.total - setup.done,
   };
 
   const handleLogout = async () => {
@@ -206,7 +231,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
           {/* Nav Items */}
           <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-            {navItems.map((item) => {
+            {sidebarItems.map((item) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
               const badge = item.badgeKey ? badgeCounts[item.badgeKey] : 0;
               const linkContent = (
@@ -272,7 +297,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 {!collapsed && <span>RentOS Admin</span>}
               </Link>
             )}
-            {bottomItems.map((item) => {
+            {(setupPending ? bottomItems : [setupItem, ...bottomItems]).map((item) => {
               const isActive = pathname === item.href;
               return (
                 <Link
