@@ -198,8 +198,14 @@ const DAVIS_REQUIREMENTS: LeaseRequirement[] = [
   {
     id: "davis-move-in-checklist",
     label: "Joint move-in inspection within five business days",
-    detail: "Owner and tenant walk the unit together on the City's Move In/Move Out Checklist. It is also what makes a deposit deduction defensible later.",
+    detail: "Owner and tenant walk the unit together on the City's Move In/Move Out Checklist, or a form the City has approved. It is also what makes a deposit deduction defensible later.",
     timing: "within-5-days",
+  },
+  {
+    id: "davis-checklist-copy",
+    label: "Give each tenant a copy of the signed inspection form within ten days",
+    detail: "Within ten days of the inspection. The form is not filed with the City — owner and tenants keep it, which is exactly why the copy matters when the deposit is argued over a year later.",
+    timing: "within-7-days",
   },
   // The rest come from the Model Lease's own text, not from the City.
   {
