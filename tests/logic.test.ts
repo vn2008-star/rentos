@@ -38,6 +38,10 @@ import {
   termEndDate,
 } from "../src/lib/lease-templates";
 import {
+  buildDavisMoveInAreas, addBusinessDays, davisMoveInDeadlines, copyDueBy,
+  outstandingAreas,
+} from "../src/lib/inspection-templates";
+import {
   resolveCollection, applyCollectionWrite, type CollectionState,
 } from "../src/lib/collection-state";
 import type {
@@ -1530,5 +1534,107 @@ describe("Davis Model Lease coverage", () => {
   test("the late charge is described as a blank, because the lease leaves it blank", () => {
     const davis = getLeaseTemplate("davis-model")!;
     assert.ok(davis.highlights?.some((h) => /blanks you fill in/.test(h)));
+  });
+});
+
+// ============================================
+// Davis move-in inventory form
+// ============================================
+
+describe("buildDavisMoveInAreas", () => {
+  test("the form matches the unit — a studio gets no Bedroom 2", () => {
+    const studio = buildDavisMoveInAreas({ beds: 0, baths: 1 }).map(a => a.name);
+    assert.ok(studio.includes("Bedroom / sleeping area"));
+    assert.ok(!studio.some(n => /Bedroom 2/.test(n)));
+    assert.ok(studio.includes("Bathroom"), "a single bathroom is not numbered");
+  });
+
+  test("a four-bed two-bath gets every room listed once", () => {
+    const names = buildDavisMoveInAreas({ beds: 4, baths: 2 }).map(a => a.name);
+    for (const n of ["Bedroom 1", "Bedroom 2", "Bedroom 3", "Bedroom 4", "Bathroom 1", "Bathroom 2"]) {
+      assert.ok(names.includes(n), `${n} missing`);
+    }
+    assert.equal(new Set(names).size, names.length, "no duplicate area names");
+  });
+
+  test("a missing or absurd unit record still yields a usable form", () => {
+    const none = buildDavisMoveInAreas(null).map(a => a.name);
+    assert.ok(none.length > 10);
+    assert.ok(none.includes("Bedroom / sleeping area"));
+    // 400 bedrooms is a typo, not a mansion: each side is capped at 12 so the
+    // form stays walkable instead of running to hundreds of lines.
+    const absurd = buildDavisMoveInAreas({ beds: 400, baths: 400 }).map(a => a.name);
+    assert.equal(absurd.filter(n => n.startsWith("Bedroom ")).length, 12);
+    assert.equal(absurd.filter(n => n.startsWith("Bathroom ")).length, 12);
+  });
+
+  test("the evidence-critical areas are marked required", () => {
+    const areas = buildDavisMoveInAreas({ beds: 2, baths: 1 });
+    const required = areas.filter(a => a.required).map(a => a.name);
+    assert.ok(required.includes("Floors and carpet"));
+    assert.ok(required.includes("Smoke and carbon monoxide detectors"));
+    assert.ok(required.includes("Keys, fobs and remotes"));
+  });
+
+  test("every area says what to photograph", () => {
+    for (const area of buildDavisMoveInAreas({ beds: 3, baths: 2 })) {
+      assert.ok(area.guidance.length > 30, `${area.name} needs real guidance`);
+      assert.ok(area.section, `${area.name} needs a section`);
+    }
+  });
+});
+
+describe("addBusinessDays", () => {
+  test("five business days from a Monday is the following Monday", () => {
+    // Mon 7 Sep 2026 → Mon 14 Sep 2026.
+    const from = new Date("2026-09-07T00:00:00Z");
+    assert.equal(addBusinessDays(from, 5).toISOString().slice(0, 10), "2026-09-14");
+  });
+
+  test("a Thursday start skips the weekend", () => {
+    // Thu 3 Sep 2026 + 5 business days → Thu 10 Sep 2026.
+    const from = new Date("2026-09-03T00:00:00Z");
+    assert.equal(addBusinessDays(from, 5).toISOString().slice(0, 10), "2026-09-10");
+  });
+
+  test("a Saturday start counts from the next working day", () => {
+    // Sat 5 Sep 2026 + 1 business day → Mon 7 Sep 2026.
+    const from = new Date("2026-09-05T00:00:00Z");
+    assert.equal(addBusinessDays(from, 1).toISOString().slice(0, 10), "2026-09-07");
+  });
+});
+
+describe("davisMoveInDeadlines and copyDueBy", () => {
+  test("the walk-through is due five business days after the tenancy starts", () => {
+    const { inspectBy } = davisMoveInDeadlines({ tenancyStart: "2026-09-01" });
+    // Tue 1 Sep 2026 → Tue 8 Sep 2026.
+    assert.equal(inspectBy, "2026-09-08");
+  });
+
+  test("the tenant's copy is due ten calendar days after the inspection", () => {
+    assert.equal(copyDueBy("2026-09-03T17:30:00.000Z"), "2026-09-13");
+  });
+
+  test("an inspection that has not happened has no copy deadline", () => {
+    assert.equal(copyDueBy(undefined), null);
+    assert.equal(copyDueBy("not a date"), null);
+    assert.equal(davisMoveInDeadlines({ tenancyStart: "2026-09-01" }).copyBy, null);
+  });
+});
+
+describe("outstandingAreas", () => {
+  test("what is left keeps the form's order, not the alphabet", () => {
+    const expected = ["Entry and hallway", "Floors and carpet", "Bedroom 1"];
+    const recorded = [{ name: "Floors and carpet" }];
+    assert.deepEqual(outstandingAreas(expected, recorded), ["Entry and hallway", "Bedroom 1"]);
+  });
+
+  test("an inspection with no form has nothing outstanding", () => {
+    assert.deepEqual(outstandingAreas(undefined, []), []);
+    assert.deepEqual(outstandingAreas([], [{ name: "Kitchen" }]), []);
+  });
+
+  test("a fully walked form is empty", () => {
+    assert.deepEqual(outstandingAreas(["Kitchen"], [{ name: "Kitchen" }]), []);
   });
 });

@@ -1076,6 +1076,7 @@ export function useInspections() {
   const scheduleInspection = useCallback(async (input: {
     unitId: string; propertyId: string; type: InspectionType; scheduledFor: string;
     inspectorName: string; leaseId?: string; tenantId?: string;
+    templateId?: Inspection["templateId"]; expectedAreas?: string[];
   }) => {
     const orgId = user?.orgId || "org-1";
     const inspection: Omit<Inspection, "id" | "createdAt" | "updatedAt"> = {
@@ -1089,6 +1090,11 @@ export function useInspections() {
       scheduledFor: input.scheduledFor,
       inspectorName: input.inspectorName,
       areas: [],
+      // Carried on the record rather than rebuilt from the unit each time: a
+      // walk-through half-done last week must not silently change shape
+      // because somebody edited the unit's bedroom count in between.
+      ...(input.templateId ? { templateId: input.templateId } : {}),
+      ...(input.expectedAreas?.length ? { expectedAreas: input.expectedAreas } : {}),
     };
     try {
       const id = await createDocument(Collections.INSPECTIONS, inspection);
@@ -1111,10 +1117,33 @@ export function useInspections() {
     }
   }, [isLive, setInspections]);
 
-  /** Records one area's condition, replacing any existing entry for that area. */
-  const saveArea = useCallback(async (id: string, area: InspectionArea) => {
+  /**
+   * Records one area's condition, replacing any existing entry for that area.
+   *
+   * `photos` are uploaded here and kept as URLs on the area. They used to be
+   * collected by the form and then dropped on the floor — every area saved with
+   * `photos: []` — which quietly gutted the whole point of a condition report.
+   * A deposit dispute a year later is decided by the pictures or it is decided
+   * by whose word sounds better.
+   */
+  const saveArea = useCallback(async (id: string, area: InspectionArea, photos: File[] = []) => {
     const inspection = inspections.find(i => i.id === id);
     if (!inspection) return;
+
+    let uploaded: string[] = [];
+    if (photos.length) {
+      // A failed upload must not also lose the written finding, so it is
+      // reported and the rest of the area is still saved.
+      uploaded = await uploadMultipleFiles(
+        `${user?.orgId || "org-1"}/inspections/${id}`,
+        photos
+      ).catch((err) => {
+        console.warn("[inspections] photo upload failed:", errorMessage(err));
+        return [] as string[];
+      });
+    }
+    if (uploaded.length) area = { ...area, photos: [...area.photos, ...uploaded] };
+
     const areas = [
       ...inspection.areas.filter(a => a.name !== area.name),
       area,
@@ -1131,7 +1160,8 @@ export function useInspections() {
       ...(depositDeduction !== undefined ? { depositDeduction } : {}),
       status: inspection.status === "scheduled" ? "in_progress" : inspection.status,
     });
-  }, [inspections, updateInspection]);
+    return uploaded.length;
+  }, [inspections, updateInspection, user?.orgId]);
 
   const completeInspection = useCallback(async (id: string, summary?: string) => {
     await updateInspection(id, {

@@ -638,6 +638,13 @@ export interface Inspection {
   completedAt?: string;
   inspectorName: string;
   areas: InspectionArea[];
+  /**
+   * The form this inspection is working through, when it was started from a
+   * template. Held on the record so the checklist survives a reload and so a
+   * half-finished walk-through still knows what it has not looked at yet.
+   */
+  templateId?: "davis-move-in";
+  expectedAreas?: string[];
   summary?: string;
   /** Move-out only: what is being withheld and why. */
   depositDeduction?: number;

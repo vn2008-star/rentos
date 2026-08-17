@@ -19,6 +19,9 @@ import {
 import { PhotoUpload } from "@/components/photo-upload";
 import { useInspections, useUnits, useProperties, useTenants, useCalendar } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
+import {
+  DAVIS_MOVE_IN_TEMPLATE, buildDavisMoveInAreas, copyDueBy, outstandingAreas,
+} from "@/lib/inspection-templates";
 import type { InspectionType, ItemCondition, InspectionArea } from "@/lib/types";
 import toast from "react-hot-toast";
 import { errorMessage } from "@/lib/errors";
@@ -45,6 +48,11 @@ const DEFAULT_AREAS = [
   "Appliances", "Exterior", "Smoke Detectors",
 ];
 
+const dateOnly = (iso: string) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
+    day: "numeric", month: "short", year: "numeric", timeZone: "UTC",
+  });
+
 export default function InspectionsPage() {
   const { inspections, scheduleInspection, saveArea, completeInspection, removeInspection } = useInspections();
   const { units } = useUnits();
@@ -60,13 +68,36 @@ export default function InspectionsPage() {
   const [form, setForm] = useState({
     unitId: "", type: "move_in" as InspectionType, scheduledFor: "",
     inspectorName: "Davis Housing Services", tenantId: "",
+    useDavisTemplate: true,
   });
+
+  // The form is generated from the unit being inspected, so a studio is not
+  // handed a checklist with "Bedroom 2" on it.
+  const templateAreas = useMemo(
+    () => buildDavisMoveInAreas(units.find(u => u.id === form.unitId)),
+    [units, form.unitId]
+  );
+  const templateApplies = form.type === "move_in" && form.useDavisTemplate;
 
   const [areaForm, setAreaForm] = useState<{
     name: string; condition: ItemCondition; notes: string; estimatedCost: string; photos: File[];
   }>({ name: "", condition: "good", notes: "", estimatedCost: "", photos: [] });
 
   const open = inspections.find(i => i.id === openId) ?? null;
+
+  /** What is left to walk, in form order rather than alphabetical. */
+  const openOutstanding = useMemo(
+    () => outstandingAreas(open?.expectedAreas, open?.areas ?? []),
+    [open?.expectedAreas, open?.areas]
+  );
+
+  // Guidance for whichever area is selected, from the form the unit was
+  // scheduled against rather than from the unit as it looks today.
+  const areaGuidance = useMemo(() => {
+    if (!open?.templateId || !areaForm.name) return null;
+    const unit = units.find(u => u.id === open.unitId);
+    return buildDavisMoveInAreas(unit).find(a => a.name === areaForm.name)?.guidance ?? null;
+  }, [open?.templateId, open?.unitId, areaForm.name, units]);
 
   const visible = useMemo(() => {
     const list = filter === "all"
@@ -101,6 +132,12 @@ export default function InspectionsPage() {
         scheduledFor: when,
         inspectorName: form.inspectorName,
         tenantId: form.tenantId || undefined,
+        ...(templateApplies
+          ? {
+              templateId: DAVIS_MOVE_IN_TEMPLATE.id,
+              expectedAreas: templateAreas.map(a => a.name),
+            }
+          : {}),
       });
 
       // An inspection that isn't on the calendar gets forgotten, so the two are
@@ -138,8 +175,12 @@ export default function InspectionsPage() {
         photos: [],
         ...(areaForm.estimatedCost ? { estimatedCost: Number(areaForm.estimatedCost) } : {}),
       };
-      await saveArea(open.id, area);
-      toast.success(`${area.name} recorded`);
+      const uploaded = await saveArea(open.id, area, areaForm.photos);
+      toast.success(
+        uploaded
+          ? `${area.name} recorded with ${uploaded} photo${uploaded === 1 ? "" : "s"}`
+          : `${area.name} recorded`
+      );
       setAreaForm({ name: "", condition: "good", notes: "", estimatedCost: "", photos: [] });
     } catch (err) {
       toast.error(err instanceof Error ? errorMessage(err) : "Could not save");
@@ -231,8 +272,17 @@ export default function InspectionsPage() {
                       <p className="text-xs text-muted-foreground mt-1">
                         {new Date(i.scheduledFor).toLocaleString(undefined, {
                           dateStyle: "medium", timeStyle: "short",
-                        })} · {i.inspectorName} · {i.areas.length} area{i.areas.length === 1 ? "" : "s"} recorded
+                        })} · {i.inspectorName} · {i.areas.length}
+                        {i.expectedAreas?.length ? ` of ${i.expectedAreas.length}` : ""} area
+                        {i.areas.length === 1 && !i.expectedAreas?.length ? "" : "s"} recorded
                       </p>
+                      {/* The obligation that outlives the walk-through, and the
+                          one people forget once the keys are handed over. */}
+                      {i.templateId && i.status === "completed" && copyDueBy(i.completedAt) && (
+                        <p className="text-xs text-amber-400 mt-1">
+                          Give each tenant a signed copy by {dateOnly(copyDueBy(i.completedAt)!)}
+                        </p>
+                      )}
                       {i.depositDeduction ? (
                         <p className="text-xs text-amber-400 mt-1 flex items-center gap-1">
                           <DollarSign className="h-3 w-3" />
@@ -308,6 +358,34 @@ export default function InspectionsPage() {
                 Linking a tenant lets them see the report — the evidence behind any deposit deduction.
               </p>
             </div>
+
+            {/* Davis requires the walk-through; this is the form for it. */}
+            {form.type === "move_in" && (
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, useDavisTemplate: !form.useDavisTemplate })}
+                className={cn(
+                  "w-full rounded-lg border p-3 text-left transition-colors",
+                  form.useDavisTemplate
+                    ? "border-primary bg-primary/5"
+                    : "border-border/50 bg-card/50 hover:border-primary/30"
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium">{DAVIS_MOVE_IN_TEMPLATE.name}</p>
+                  {form.useDavisTemplate && <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />}
+                </div>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {DAVIS_MOVE_IN_TEMPLATE.description}
+                </p>
+                {form.useDavisTemplate && form.unitId && (
+                  <p className="mt-1.5 text-[11px] text-primary">
+                    {templateAreas.length} areas for this unit, from its {units.find(u => u.id === form.unitId)?.beds ?? 0} bed
+                    {" / "}{units.find(u => u.id === form.unitId)?.baths ?? 0} bath layout
+                  </p>
+                )}
+              </button>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSchedule(false)}>Cancel</Button>
@@ -329,6 +407,54 @@ export default function InspectionsPage() {
 
           {open && (
             <div className="space-y-4">
+              {/* The form's own progress. Without it, "record findings" is a
+                  blank box and the walk-through stops wherever attention did. */}
+              {open.expectedAreas?.length ? (
+                <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">{DAVIS_MOVE_IN_TEMPLATE.name}</p>
+                    <Badge variant="outline" className="text-[10px]">
+                      {open.areas.length} of {open.expectedAreas.length} recorded
+                    </Badge>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-border/50">
+                    <div
+                      className="h-full rounded-full gradient-brand transition-all duration-500"
+                      style={{ width: `${Math.round((open.areas.length / open.expectedAreas.length) * 100)}%` }}
+                    />
+                  </div>
+                  {openOutstanding.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {openOutstanding.map(name => (
+                        <button
+                          key={name}
+                          type="button"
+                          onClick={() => setAreaForm({ ...areaForm, name })}
+                          className={cn(
+                            "rounded-md border px-2 py-1 text-[11px] transition-colors",
+                            areaForm.name === name
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border/50 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                          )}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-emerald-400">
+                      Every area on the form has been recorded.
+                    </p>
+                  )}
+                  {copyDueBy(open.completedAt) && (
+                    <p className="text-[11px] text-amber-300 border-t border-border/30 pt-2">
+                      Davis Art. 18.11: each tenant needs a signed copy by{" "}
+                      {dateOnly(copyDueBy(open.completedAt)!)}.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
               {open.areas.length > 0 && (
                 <div className="space-y-2">
                   {open.areas.map(a => (
@@ -366,7 +492,8 @@ export default function InspectionsPage() {
                       <Select value={areaForm.name} onValueChange={v => v != null && setAreaForm({ ...areaForm, name: v })}>
                         <SelectTrigger><SelectValue placeholder="Select area" /></SelectTrigger>
                         <SelectContent>
-                          {DEFAULT_AREAS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                          {(open.expectedAreas?.length ? open.expectedAreas : DEFAULT_AREAS)
+                            .map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
@@ -383,6 +510,14 @@ export default function InspectionsPage() {
                       </Select>
                     </div>
                   </div>
+                  {/* What to photograph is the part people get wrong, so it is
+                      said here rather than in a manual nobody opens. */}
+                  {areaGuidance && (
+                    <p className="flex items-start gap-1.5 rounded-md bg-background/60 p-2 text-[11px] text-muted-foreground">
+                      <Camera className="h-3.5 w-3.5 shrink-0 mt-px text-primary" />
+                      <span>{areaGuidance}</span>
+                    </p>
+                  )}
                   <div>
                     <Label>Notes</Label>
                     <Textarea rows={2} placeholder="What did you find?"
