@@ -10,6 +10,7 @@
     "seed": "tsx scripts/seed-firestore.ts",
     "link-org": "tsx scripts/link-user-to-org.ts",
     "leave-org": "tsx scripts/leave-org.ts",
+    "delete-org": "tsx scripts/delete-org.ts",
     "rename-org": "tsx scripts/rename-org.ts",
     "grant-super-admin": "tsx scripts/grant-super-admin.ts",
     "icons": "node scripts/generate-icons.mjs",
