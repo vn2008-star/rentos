@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, FileCheck2, ExternalLink } from "lucide-react";
+import { CircleAlert, FileCheck2, ExternalLink, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,7 @@ const TIMING_LABEL: Record<RequirementTiming, string> = {
   "before-signing": "Before signing",
   "at-signing": "In the lease",
   "within-5-days": "First 5 days",
+  "within-7-days": "First 7 days",
   "at-renewal": "At renewal",
   "at-move-out": "At move-out",
 };
@@ -28,6 +29,7 @@ const TIMING_TONE: Record<RequirementTiming, string> = {
   "before-signing": "text-amber-400 border-amber-500/30",
   "at-signing": "text-primary border-primary/30",
   "within-5-days": "text-violet-400 border-violet-500/30",
+  "within-7-days": "text-violet-400 border-violet-500/30",
   "at-renewal": "text-blue-400 border-blue-500/30",
   "at-move-out": "text-muted-foreground border-border/50",
 };
@@ -74,21 +76,52 @@ export function LeaseRequirements({
               <div className="min-w-0">
                 <p className="text-xs font-medium leading-snug">{req.label}</p>
                 <p className="text-[11px] text-muted-foreground leading-snug">{req.detail}</p>
+                {req.coveredBy && (
+                  <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-emerald-400">
+                    <Check className="h-3 w-3" /> {req.coveredBy}
+                  </p>
+                )}
               </div>
             </li>
           ))}
         </ul>
 
-        {template.sourceUrl && (
-          <a
-            href={template.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-          >
-            Get the current {template.name} <ExternalLink className="h-3 w-3" />
-          </a>
+        {template.highlights && template.highlights.length > 0 && (
+          <div className="border-t border-border/30 pt-3">
+            <p className="text-xs font-medium mb-1.5">What the signed document already settles</p>
+            <ul className="space-y-1">
+              {template.highlights.map((point) => (
+                <li key={point} className="flex gap-1.5 text-[11px] text-muted-foreground leading-snug">
+                  <span className="text-primary">·</span>
+                  <span>{point}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
+
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {template.documentUrl && (
+            <a
+              href={template.documentUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+            >
+              Download the {template.name} (PDF) <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+          {template.sourceUrl && (
+            <a
+              href={template.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Check for a newer version <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
 
         <p className="flex items-start gap-1.5 border-t border-border/30 pt-2 text-[11px] text-muted-foreground">
           <CircleAlert className="h-3.5 w-3.5 shrink-0 mt-px" />

@@ -32,6 +32,7 @@ export type RequirementTiming =
   | "before-signing"
   | "at-signing"
   | "within-5-days"
+  | "within-7-days"
   | "at-renewal"
   | "at-move-out";
 
@@ -43,6 +44,13 @@ export interface LeaseRequirement {
   timing: RequirementTiming;
   /** Only when the building predates the 1978 lead paint ban. */
   pre1978Only?: boolean;
+  /**
+   * Set when the chosen lease already does this — e.g. the Davis Model Lease
+   * carries the Megan's Law and AB 1482 notices in its own text. Telling a
+   * landlord to go and add a notice that is already on the page they signed is
+   * how a checklist loses their trust.
+   */
+  coveredBy?: string;
 }
 
 export interface LeaseTemplateOption {
@@ -52,8 +60,12 @@ export interface LeaseTemplateOption {
   jurisdiction: string;
   bestFor: string;
   sourceUrl?: string;
+  /** The document itself, when it is published at a stable address. */
+  documentUrl?: string;
   /** Where the operative document comes from, and who owns it. */
   sourceNote: string;
+  /** What the signed document already settles, so nobody re-types it here. */
+  highlights?: string[];
   defaults: {
     lateFeePercent: number;
     gracePeriodDays: number;
@@ -142,6 +154,21 @@ export const CALIFORNIA_REQUIREMENTS: LeaseRequirement[] = [
   },
 ];
 
+/**
+ * Which state requirements the Davis Model Lease already discharges, by section.
+ *
+ * Read off the 3 March 2022 document itself — it carries the Megan's Law notice
+ * at § 26 and the AB 1482 statement at § 23, and its § 8 and § 22 set out the
+ * 21-day itemised deposit return.
+ */
+const DAVIS_MODEL_COVERAGE: Record<string, string> = {
+  "megans-law": "Already in the Model Lease, § 26",
+  ab1482: "Already in the Model Lease, § 23",
+  "deposit-return": "Set out in the Model Lease, §§ 8 and 22",
+  utilities: "Filled in at § 9 of the Model Lease",
+  smoking: "Not covered — add it as an addendum under § 10",
+};
+
 /** Article 18.11 of the Davis Municipal Code, on top of the state list. */
 const DAVIS_REQUIREMENTS: LeaseRequirement[] = [
   {
@@ -174,6 +201,25 @@ const DAVIS_REQUIREMENTS: LeaseRequirement[] = [
     detail: "Owner and tenant walk the unit together on the City's Move In/Move Out Checklist. It is also what makes a deposit deduction defensible later.",
     timing: "within-5-days",
   },
+  // The rest come from the Model Lease's own text, not from the City.
+  {
+    id: "dml-inventory",
+    label: "Signed inventory statement within seven days",
+    detail: "§ 21 of the Model Lease: both parties sign and hold a copy of the condition inventory within seven days of the tenant taking possession. Separate from the City's checklist, and the thing that decides deposit arguments a year later.",
+    timing: "within-7-days",
+  },
+  {
+    id: "dml-preinspection",
+    label: "Offer the pre-move-out inspection in writing",
+    detail: "§ 22: tell the tenant in writing that they may request an inspection and be present at it, give 48 hours' notice of it, and include the statutory abandoned-property paragraph. Cal. Civ. Code § 1950.5(f).",
+    timing: "at-move-out",
+  },
+  {
+    id: "dml-deposit-hold",
+    label: "Deposit released only when every tenant has gone",
+    detail: "§§ 7 and 22: no partial refunds to individual tenants while the tenancy continues, and nothing is released until all occupants have vacated and all keys are back.",
+    timing: "at-move-out",
+  },
 ];
 
 export const LEASE_TEMPLATES: LeaseTemplateOption[] = [
@@ -184,13 +230,24 @@ export const LEASE_TEMPLATES: LeaseTemplateOption[] = [
     jurisdiction: "Davis, CA",
     bestFor: "Student and shared housing near UC Davis",
     sourceUrl: "https://resources.ucdavis.edu/model-lease",
+    documentUrl:
+      "https://resources.ucdavis.edu/sites/g/files/dgvnsk15086/files/inline-files/Model%20Lease%20%28Last%20updated%203.2.22%29.pdf",
     sourceNote:
-      "Owned by ASUCD and revised in 2022. Free to use — download the current version, sign it, and attach it here. Landlords who adopt it can ask ASUCD Housing Advising to add their property to the published list of adoptees, which is worth something to a student comparing three places in an afternoon.",
+      "Owned by ASUCD, last updated 2 March 2022 — nine pages plus signature sheets for up to nine tenants. Free to use: download it, fill in the blanks, sign it, and attach it here. Landlords who adopt it can ask ASUCD Housing Advising to add their property to the published list of adoptees, which is worth something to a student comparing three places in an afternoon.",
     defaults: { lateFeePercent: 5, gracePeriodDays: 5, autoRenew: false, termMonths: 12 },
+    highlights: [
+      "Every tenant is jointly and severally liable — each is answerable for the whole rent, not a share (§ 11)",
+      "Holding over creates no month-to-month tenancy; any renewal must be a separate writing (§§ 1 and 25)",
+      "Subletting and assignment need written consent, which may not be unreasonably withheld (§ 32)",
+      "The late charge and the day it bites are blanks you fill in — the lease sets no figure (§ 5)",
+      "Bounced cheques: up to $25 for the first, $35 thereafter, per Civ. Code § 1719 (§ 5)",
+      "Disputes may go to mediation, e.g. the Yolo Conflict Resolution Center (§ 28)",
+    ],
     terms:
-      "This tenancy is governed by the Davis Model Lease (ASUCD, 2022 revision), signed separately and attached to this record. " +
-      "The figures held here — rent, deposit, term, late fee and grace period — record what was agreed; where they differ from the signed document, the signed document governs. " +
-      "City of Davis requirements apply: the unit is registered under Article 18.11, the tenant has been given the City's Tenants' Rights and Responsibilities form, and a joint move-in inspection will be completed on the City's checklist within five business days of the start date.",
+      "This tenancy is on the Davis Model Lease (ASUCD, last updated 2 March 2022), signed separately and attached to this record. " +
+      "The figures held here — rent, deposit, term, late charge and grace period — are the ones written into §§ 1, 3, 5 and 6 of that document; where they differ, the signed document governs. " +
+      "Tenants are jointly and severally liable under § 11, and the term ends without further notice under § 1: holding over creates no month-to-month tenancy, and any renewal is a separate writing. " +
+      "City of Davis requirements apply alongside it: the unit is registered under Article 18.11, the tenant has the City's Tenants' Rights and Responsibilities form, a joint move-in inspection follows on the City's checklist within five business days, and the § 21 inventory statement is signed by both parties within seven days.",
     extraRequirements: DAVIS_REQUIREMENTS,
   },
   {
@@ -224,7 +281,16 @@ export function requirementsFor(
   options: { builtBefore1978?: boolean } = {}
 ): LeaseRequirement[] {
   const template = getLeaseTemplate(templateId);
-  const all = [...CALIFORNIA_REQUIREMENTS, ...(template?.extraRequirements ?? [])];
+
+  // Annotated rather than removed: the landlord still has to know the duty
+  // exists, they just do not have to go and do anything about it separately.
+  const state = CALIFORNIA_REQUIREMENTS.map((req) =>
+    templateId === "davis-model" && DAVIS_MODEL_COVERAGE[req.id]
+      ? { ...req, coveredBy: DAVIS_MODEL_COVERAGE[req.id] }
+      : req
+  );
+
+  const all = [...state, ...(template?.extraRequirements ?? [])];
   // A lead paint disclosure on a building from 2015 is noise, and noise is how
   // a checklist stops being read.
   return options.builtBefore1978 ? all : all.filter((r) => !r.pre1978Only);

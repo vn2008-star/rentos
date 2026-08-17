@@ -1495,3 +1495,40 @@ describe("termEndDate", () => {
     assert.equal(termEndDate("ca-standard", ""), "");
   });
 });
+
+describe("Davis Model Lease coverage", () => {
+  test("notices already in the signed document are marked, not re-demanded", () => {
+    const davis = requirementsFor("davis-model");
+    const megans = davis.find((r) => r.id === "megans-law")!;
+    const ab1482 = davis.find((r) => r.id === "ab1482")!;
+    // The 2 March 2022 document carries both in its own text.
+    assert.match(megans.coveredBy ?? "", /§ 26/);
+    assert.match(ab1482.coveredBy ?? "", /§ 23/);
+  });
+
+  test("a plain California lease claims no such coverage", () => {
+    const state = requirementsFor("ca-standard");
+    assert.equal(state.find((r) => r.id === "megans-law")!.coveredBy, undefined);
+    assert.equal(state.find((r) => r.id === "ab1482")!.coveredBy, undefined);
+  });
+
+  test("the document's own deadlines are listed alongside the City's", () => {
+    const ids = requirementsFor("davis-model").map((r) => r.id);
+    // Five business days is the City's checklist; seven days is § 21 of the
+    // lease. They are different obligations and both are owed.
+    assert.ok(ids.includes("davis-move-in-checklist"));
+    assert.ok(ids.includes("dml-inventory"));
+    assert.ok(ids.includes("dml-preinspection"));
+  });
+
+  test("the template links to the actual published document", () => {
+    const davis = getLeaseTemplate("davis-model")!;
+    assert.match(davis.documentUrl ?? "", /\.pdf$/i);
+    assert.match(davis.documentUrl ?? "", /ucdavis\.edu/);
+  });
+
+  test("the late charge is described as a blank, because the lease leaves it blank", () => {
+    const davis = getLeaseTemplate("davis-model")!;
+    assert.ok(davis.highlights?.some((h) => /blanks you fill in/.test(h)));
+  });
+});
