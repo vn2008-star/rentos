@@ -484,14 +484,33 @@ service cloud.firestore {
     // ============================================
     // Transactions
     // ============================================
-    // The Stripe webhook is the sole writer, and it uses the Admin SDK, which
-    // bypasses these rules entirely. No client may write a payment record —
-    // otherwise a tenant could insert a completed transaction and mark their own
-    // rent paid. Tenants read only their own payment history.
+    // Stripe's webhook writes these through the Admin SDK, which bypasses these
+    // rules. The danger to guard against is a TENANT inserting a completed
+    // transaction and marking their own rent paid — so tenants cannot write
+    // here at all, and read only their own history.
+    //
+    // Staff can, because rent still arrives as cash, cheques and bank transfers
+    // that nothing else in the system will ever record. Refusing them left the
+    // "Record Transaction" button on the financials page throwing a permission
+    // error, and a landlord unable to receipt a payment they had genuinely
+    // taken.
+    //
+    // Two limits keep that safe. A manual entry may not carry a
+    // stripePaymentIntentId, so nothing hand-written can pass itself off as a
+    // card payment Stripe confirmed. And nothing here is editable or
+    // deletable by anyone: a ledger that can be revised after a receipt has
+    // been issued against it is not a ledger. Corrections go in as their own
+    // entry — that is what the refund type is for.
     match /transactions/{txId} {
       allow read: if canViewOrg(resource.data.orgId)
                   || viewsAsTenant(resource.data.get('tenantId', ''));
-      allow create, update, delete: if false;
+      allow create: if canManageOrg(request.resource.data.orgId)
+                    && !('stripePaymentIntentId' in request.resource.data)
+                    && request.resource.data.amount is number
+                    && request.resource.data.amount >= 0
+                    && request.resource.data.type is string
+                    && request.resource.data.status in ['pending', 'completed', 'failed', 'refunded'];
+      allow update, delete: if false;
     }
 
     // ============================================

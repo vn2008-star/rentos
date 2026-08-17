@@ -514,10 +514,22 @@ describe("transactions", () => {
     );
   });
 
-  test("not even a manager can write one by hand", async () => {
+  test("a manager may record one by hand, but not as a Stripe payment", async () => {
+    // This used to forbid staff writes outright, which left a landlord unable
+    // to record the cash and cheques rent actually arrives as — and so unable
+    // to issue a receipt for money they had genuinely taken. What must stay
+    // impossible is a hand-written entry passing itself off as a card payment
+    // Stripe confirmed.
+    await assertSucceeds(
+      setDoc(doc(as("manager"), "transactions", "by-hand"), {
+        orgId: ORG, amount: 1800, status: "completed", type: "rent",
+        date: "2026-09-01", description: "September rent, cheque",
+      })
+    );
     await assertFails(
       setDoc(doc(as("manager"), "transactions", "forged-2"), {
         orgId: ORG, amount: 1800, status: "completed", type: "rent",
+        stripePaymentIntentId: "pi_forged",
       })
     );
   });
@@ -1300,5 +1312,49 @@ describe("pay-or-quit notices", () => {
         orgId: ORG, tenantIds: ["tenant-1"], amountDemanded: 0, status: "served",
       })
     );
+  });
+});
+
+describe("manual transactions", () => {
+  const entry = (over = {}) => ({
+    orgId: ORG, type: "rent", amount: 1800, status: "completed",
+    date: "2026-09-01", description: "September rent, cash", ...over,
+  });
+
+  test("staff record money that arrived outside Stripe", async () => {
+    // Cash, cheques and bank transfers exist, and nothing else records them.
+    await assertSucceeds(setDoc(doc(as("manager"), "transactions", "cash-1"), entry()));
+  });
+
+  test("a manual entry cannot pose as a Stripe payment", async () => {
+    await assertFails(
+      setDoc(doc(as("manager"), "transactions", "fake-stripe"), entry({ stripePaymentIntentId: "pi_forged" }))
+    );
+  });
+
+  test("a tenant cannot mark their own rent paid", async () => {
+    await assertFails(
+      setDoc(doc(as("tenant"), "transactions", "self-paid"), entry({ tenantId: "tenant-1" }))
+    );
+  });
+
+  test("the demo guest cannot either", async () => {
+    await assertFails(setDoc(doc(as("guest"), "transactions", "guest-txn"), entry()));
+  });
+
+  test("another organisation cannot write into this one", async () => {
+    await assertFails(setDoc(doc(as("outsider"), "transactions", "cross-org"), entry()));
+  });
+
+  test("nonsense amounts and statuses are refused", async () => {
+    await assertFails(setDoc(doc(as("manager"), "transactions", "bad-amount"), entry({ amount: -50 })));
+    await assertFails(setDoc(doc(as("manager"), "transactions", "bad-amount-2"), entry({ amount: "lots" })));
+    await assertFails(setDoc(doc(as("manager"), "transactions", "bad-status"), entry({ status: "settled" })));
+  });
+
+  test("the ledger is immutable once written", async () => {
+    // A receipt may already have been issued against this entry.
+    await assertFails(updateDoc(doc(as("manager"), "transactions", "txn-1"), { amount: 1 }));
+    await assertFails(deleteDoc(doc(as("manager"), "transactions", "txn-1")));
   });
 });
