@@ -32,6 +32,7 @@ import {
   checkTenantSignature, checkRenewalResponse, signingActivatesLease,
   unitOccupancyForLease,
 } from "../src/lib/lease-actions";
+import { buildSetupSteps, setupProgress } from "../src/lib/getting-started";
 import {
   resolveCollection, applyCollectionWrite, type CollectionState,
 } from "../src/lib/collection-state";
@@ -1301,5 +1302,97 @@ describe("unitOccupancyForLease", () => {
       unitOccupancyForLease({ id: "lease-1", tenantIds: ["t1", "t2"] }, now),
       { status: "occupied", currentTenantId: "t1", currentLeaseId: "lease-1", updatedAt: now }
     );
+  });
+});
+
+// ============================================
+// Getting-started guide
+// ============================================
+
+describe("buildSetupSteps", () => {
+  const empty = {
+    properties: [], units: [], tenants: [], leases: [], org: null,
+  } as Parameters<typeof buildSetupSteps>[0];
+
+  const stepById = (input: Parameters<typeof buildSetupSteps>[0], id: string) =>
+    buildSetupSteps(input).find((s) => s.id === id)!;
+
+  test("a brand new org has nothing done", () => {
+    assert.equal(buildSetupSteps(empty).every((s) => !s.done), true);
+    assert.equal(setupProgress(buildSetupSteps(empty)).done, 0);
+  });
+
+  test("the first thing offered is the property — everything else needs one", () => {
+    assert.equal(setupProgress(buildSetupSteps(empty)).next?.id, "property");
+  });
+
+  test("a tenant with no unit does not count as housed", () => {
+    const input = {
+      ...empty,
+      tenants: [{ id: "t1", unitId: undefined, userId: undefined }],
+    };
+    assert.equal(stepById(input, "tenant").done, false);
+  });
+
+  test("a tenant in a unit does", () => {
+    const input = {
+      ...empty,
+      tenants: [{ id: "t1", unitId: "u1", userId: undefined }],
+    };
+    assert.equal(stepById(input, "tenant").done, true);
+    assert.equal(stepById(input, "tenant").detail, "1 tenant housed");
+  });
+
+  test("a draft lease is not a live one", () => {
+    assert.equal(stepById({ ...empty, leases: [{ id: "l1", status: "draft" }] }, "lease").done, false);
+    assert.equal(stepById({ ...empty, leases: [{ id: "l1", status: "active" }] }, "lease").done, true);
+    assert.equal(stepById({ ...empty, leases: [{ id: "l1", status: "month_to_month" }] }, "lease").done, true);
+  });
+
+  test("payouts count only once Stripe will actually take a charge", () => {
+    const submitted = {
+      ...empty,
+      org: { payouts: { chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: true } },
+    } as Parameters<typeof buildSetupSteps>[0];
+    assert.equal(stepById(submitted, "payouts").done, false);
+
+    const live = {
+      ...empty,
+      org: { payouts: { chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true } },
+    } as Parameters<typeof buildSetupSteps>[0];
+    assert.equal(stepById(live, "payouts").done, true);
+  });
+
+  test("counts read as English, not as \"1 propertys\"", () => {
+    const one = { ...empty, properties: [{ id: "p1" }] };
+    assert.equal(stepById(one, "property").detail, "1 property");
+    const two = { ...empty, properties: [{ id: "p1" }, { id: "p2" }] };
+    assert.equal(stepById(two, "property").detail, "2 properties");
+  });
+});
+
+describe("setupProgress", () => {
+  const step = (id: string, done: boolean, optional = false) =>
+    ({ id, title: id, why: "", href: "", cta: "", done, optional });
+
+  test("optional steps are left out of the count, so 100% is reachable", () => {
+    const progress = setupProgress([
+      step("a", true), step("b", true), step("c", false, true),
+    ]);
+    assert.deepEqual(
+      { done: progress.done, total: progress.total, percent: progress.percent, complete: progress.complete },
+      { done: 2, total: 2, percent: 100, complete: true }
+    );
+  });
+
+  test("next skips over an undone optional step to the required one", () => {
+    const progress = setupProgress([
+      step("a", true), step("b", false, true), step("c", false),
+    ]);
+    assert.equal(progress.next?.id, "c");
+  });
+
+  test("a finished org has nothing next", () => {
+    assert.equal(setupProgress([step("a", true)]).next, null);
   });
 });

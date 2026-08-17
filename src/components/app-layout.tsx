@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Building2, Home, Users, FileText, Wrench, DollarSign,
   Megaphone, ArrowLeftRight, Settings, LogOut, ChevronLeft, ChevronRight,
   Search, Plus, BedDouble, Menu, X, HardHat, BarChart3, Eye, Briefcase,
-  CalendarDays, ClipboardCheck, CreditCard, ShieldCheck
+  CalendarDays, ClipboardCheck, CreditCard, ShieldCheck, Rocket
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -81,6 +81,7 @@ const quickAddItems: {
 ];
 
 const bottomItems = [
+  { label: "Getting started", href: "/getting-started", icon: Rocket },
   { label: "Team", href: "/team", icon: Users },
   { label: "Billing", href: "/billing", icon: CreditCard },
   { label: "Settings", href: "/settings", icon: Settings },

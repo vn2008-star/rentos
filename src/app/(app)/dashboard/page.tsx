@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useProperties, useUnits, useTenants, useMaintenance, useApplications, useTransactions } from "@/lib/hooks";
 import { useAuthStore } from "@/lib/store";
 import { PendingTasks } from "@/components/pending-tasks";
+import { SetupProgressCard } from "@/components/setup-progress-card";
 import { buildRevenueHistory, isEmptyHistory, summariseRevenue } from "@/lib/finance";
 import Link from "next/link";
 
@@ -107,6 +108,9 @@ export default function DashboardPage() {
           </Badge>
         </div>
       </div>
+
+      {/* Removes itself once the org is set up — see SetupProgressCard. */}
+      <SetupProgressCard />
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
