@@ -160,6 +160,25 @@ before(async () => {
     await setDoc(doc(db, "lock_changes", "lock-1"), { orgId: ORG, unitId: "unit-1", reason: "turnover" });
     await setDoc(doc(db, "unit_notes", "note-1"), { orgId: ORG, unitId: "unit-1", body: "Noise complaint" });
     await setDoc(doc(db, "calendar_events", "cal-1"), { orgId: ORG, type: "showing", title: "Showing" });
+    // A receipt and a served notice belonging to tenant-1.
+    await setDoc(doc(db, "receipts", "receipt-1"), {
+      orgId: ORG, number: "R-20260901-ABC123", paymentId: "txn-1",
+      tenantId: "tenant-1", leaseId: "lease-1", unitId: "unit-1", propertyId: "prop-1",
+      amount: 2000, period: "2026-09", paidOn: "2026-09-01", method: "Card",
+      balanceAfter: 0, tenantName: "Sarah Chen", unitLabel: "Unit 101",
+      propertyName: "Russell Commons", landlordName: "Demo Org",
+      issuedBy: "Manager", issuedAt: "2026-09-01T10:00:00.000Z",
+    });
+    await setDoc(doc(db, "notices", "notice-1"), {
+      orgId: ORG, leaseId: "lease-1", unitId: "unit-1", propertyId: "prop-1",
+      tenantIds: ["tenant-1"], tenantNames: ["Sarah Chen"],
+      unitAddress: "1 Russell Blvd, Unit 101, Davis, CA",
+      amountDemanded: 2000,
+      periods: [{ period: "2026-09", dueDate: "2026-09-01", owed: 2000 }],
+      excludedCharges: [], payee: { name: "Demo Org", phone: "555", address: "x", method: "in_person", hours: "9-5" },
+      servedOn: "2026-09-14", serviceMethod: "personal", deadline: "2026-09-17",
+      status: "served", issuedBy: "Manager", issuedAt: "2026-09-14T10:00:00.000Z",
+    });
     // The advert is public, but the document wrapped around it is not: `leads`
     // is the landlord's enquiry pipeline, with contact details attached.
     await setDoc(doc(db, "listings", "listing-1"), {
@@ -1179,5 +1198,107 @@ describe("feedback", () => {
 
   test("nobody can delete feedback", async () => {
     await assertFails(deleteDoc(doc(as("manager"), "feedback", "fb-1")));
+  });
+});
+
+// ============================================================
+// Rent receipts and pay-or-quit notices
+// ============================================================
+// Both are documents the tenant has been handed. They read their own, they
+// change nothing, and neither survives editing after issue.
+
+describe("rent receipts", () => {
+  test("staff read and issue them", async () => {
+    await assertSucceeds(getDoc(doc(as("manager"), "receipts", "receipt-1")));
+    await assertSucceeds(
+      setDoc(doc(as("manager"), "receipts", "receipt-new"), {
+        orgId: ORG, number: "R-1", paymentId: "txn-2", tenantId: "tenant-1",
+        leaseId: "lease-1", unitId: "unit-1", propertyId: "prop-1",
+        amount: 500, period: "2026-10", paidOn: "2026-10-01", method: "Cash",
+        balanceAfter: 1500, tenantName: "Sarah Chen", unitLabel: "Unit 101",
+        propertyName: "Russell Commons", landlordName: "Demo Org",
+        issuedBy: "Manager", issuedAt: "2026-10-01T10:00:00.000Z",
+      })
+    );
+  });
+
+  test("the tenant reads their own", async () => {
+    await assertSucceeds(getDoc(doc(as("tenant"), "receipts", "receipt-1")));
+  });
+
+  test("another tenant in the same org cannot", async () => {
+    await assertFails(getDoc(doc(as("tenant2"), "receipts", "receipt-1")));
+  });
+
+  test("a tenant account with no tenantId reads nothing", async () => {
+    // The empty-string trap: '' must not match a document's missing field.
+    await assertFails(getDoc(doc(as("unlinked"), "receipts", "receipt-1")));
+  });
+
+  test("another organisation cannot see it", async () => {
+    await assertFails(getDoc(doc(as("outsider"), "receipts", "receipt-1")));
+  });
+
+  test("nobody edits a receipt after it is issued", async () => {
+    // A receipt whose figures can change is not evidence of anything.
+    await assertFails(updateDoc(doc(as("manager"), "receipts", "receipt-1"), { amount: 1 }));
+    await assertFails(updateDoc(doc(as("tenant"), "receipts", "receipt-1"), { amount: 999 }));
+  });
+
+  test("a tenant cannot write themselves one", async () => {
+    await assertFails(
+      setDoc(doc(as("tenant"), "receipts", "forged"), {
+        orgId: ORG, tenantId: "tenant-1", amount: 2000, number: "R-fake",
+      })
+    );
+  });
+});
+
+describe("pay-or-quit notices", () => {
+  test("staff issue and read them", async () => {
+    await assertSucceeds(getDoc(doc(as("manager"), "notices", "notice-1")));
+  });
+
+  test("the tenant named on it can read it", async () => {
+    // They were handed the paper too; a resident who cannot see what is
+    // demanded cannot pay it.
+    await assertSucceeds(getDoc(doc(as("tenant"), "notices", "notice-1")));
+  });
+
+  test("a tenant not named on it cannot", async () => {
+    await assertFails(getDoc(doc(as("tenant2"), "notices", "notice-1")));
+  });
+
+  test("another organisation cannot", async () => {
+    await assertFails(getDoc(doc(as("outsider"), "notices", "notice-1")));
+  });
+
+  test("the demand cannot be edited after service", async () => {
+    // The tenant paid against a figure; it must not move afterwards.
+    await assertFails(updateDoc(doc(as("manager"), "notices", "notice-1"), { amountDemanded: 5000 }));
+    await assertFails(updateDoc(doc(as("manager"), "notices", "notice-1"), { deadline: "2026-10-01" }));
+    await assertFails(updateDoc(doc(as("manager"), "notices", "notice-1"), { servedOn: "2026-09-01" }));
+    await assertFails(
+      updateDoc(doc(as("manager"), "notices", "notice-1"), {
+        periods: [{ period: "2026-09", dueDate: "2026-09-01", owed: 9999 }],
+      })
+    );
+  });
+
+  test("but staff may close it out", async () => {
+    await assertSucceeds(
+      updateDoc(doc(as("manager"), "notices", "notice-1"), {
+        status: "paid", resolvedAt: "2026-09-16T00:00:00.000Z",
+      })
+    );
+  });
+
+  test("the tenant cannot close it out, or write one", async () => {
+    await assertFails(updateDoc(doc(as("tenant"), "notices", "notice-1"), { status: "withdrawn" }));
+    await assertFails(
+      setDoc(doc(as("tenant"), "notices", "self-serve"), {
+        orgId: ORG, tenantIds: ["tenant-1"], amountDemanded: 0, status: "served",
+      })
+    );
   });
 });

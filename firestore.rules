@@ -29,11 +29,21 @@ service cloud.firestore {
       return getUserProfile().role in ['super_admin', 'owner', 'manager'];
     }
 
-    // Staff roles only. Contractors and tenants also carry the org's orgId (they
-    // need it for job/lease context), so belongsToOrg() alone would hand them
-    // full staff privileges — always pair it with this for staff-only paths.
+    // A customer's own staff. Contractors and tenants also carry the org's
+    // orgId (they need it for job/lease context), so belongsToOrg() alone would
+    // hand them full staff privileges — always pair it with this for staff-only
+    // paths.
+    //
+    // super_admin is deliberately NOT here. A RentOS operator is not a member
+    // of the customer's staff; their access comes one organization at a time,
+    // from a support session that expires on its own. Listing them here undid
+    // that for any operator whose own profile happened to name the org they
+    // were supporting: they kept full staff sight after the session lapsed, and
+    // kept it while supposedly confined to a single tenant's view — which would
+    // have shown them exactly what they were looking for and hidden the bug
+    // they were sent to find. See hasSupportSession() below for the real path.
     function isStaff() {
-      return getUserProfile().role in ['super_admin', 'owner', 'manager', 'leasing_agent', 'maintenance'];
+      return getUserProfile().role in ['owner', 'manager', 'leasing_agent', 'maintenance'];
     }
 
     function isOrgStaff(orgId) {
@@ -46,8 +56,13 @@ service cloud.firestore {
       return getUserProfile().get('vendorId', '');
     }
 
+    // The empty-string check on both sides is load-bearing. A caller with no
+    // vendorId has '', and a document with no vendorId also reads '' through
+    // get(…, '') — so without it, "nobody" matched "nothing" and any member of
+    // the org satisfied a vendor-scoped rule for an unassigned record.
     function isAssignedVendor(vendorId) {
-      return hasProfile() && vendorId != null && callerVendorId() == vendorId;
+      return hasProfile() && vendorId != null && vendorId != ''
+             && callerVendorId() != '' && callerVendorId() == vendorId;
     }
 
     // Tenant accounts carry a tenantId linking the login to a Tenant record.
@@ -57,8 +72,13 @@ service cloud.firestore {
       return getUserProfile().get('tenantId', '');
     }
 
+    // Same trap as isAssignedVendor, and it had teeth: a maintenance request
+    // carries no tenantId when staff file it, so `'' == ''` let the read-only
+    // demo guest — an identity anyone on the internet can assume — create
+    // maintenance requests inside the demo organization.
     function isSelfTenant(tenantId) {
-      return hasProfile() && tenantId != null && callerTenantId() == tenantId;
+      return hasProfile() && tenantId != null && tenantId != ''
+             && callerTenantId() != '' && callerTenantId() == tenantId;
     }
 
     // A demo visitor. Anyone can become one by clicking "View Demo" on the
@@ -167,11 +187,13 @@ service cloud.firestore {
     }
 
     function viewsAsTenant(tenantId) {
-      return hasProfile() && tenantId != null && readerTenantId() == tenantId;
+      return hasProfile() && tenantId != null && tenantId != ''
+             && readerTenantId() != '' && readerTenantId() == tenantId;
     }
 
     function viewsAsVendor(vendorId) {
-      return hasProfile() && vendorId != null && readerVendorId() == vendorId;
+      return hasProfile() && vendorId != null && vendorId != ''
+             && readerVendorId() != '' && readerVendorId() == vendorId;
     }
 
     /** Anyone entitled to look at this organization's operational records. */
