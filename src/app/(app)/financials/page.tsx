@@ -10,9 +10,14 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useTransactions, useLeases, useTenants, useProperties, useUnits } from "@/lib/hooks";
+import { useTransactions, useLeases, useTenants, useProperties, useUnits, useRentDocuments } from "@/lib/hooks";
+import { useOrganization } from "@/lib/use-org";
 import { buildRevenueHistory, isEmptyHistory } from "@/lib/finance";
-import type { Transaction } from "@/lib/types";
+import { buildReceipt } from "@/lib/rent-notices";
+import { IssueNoticeDialog } from "@/components/issue-notice-dialog";
+import { ReceiptDocument, PrintButton } from "@/components/rent-documents";
+import type { Lease, RentReceipt, Transaction } from "@/lib/types";
+import { errorMessage } from "@/lib/errors";
 import toast from "react-hot-toast";
 
 const typeColors: Record<string, string> = {
@@ -38,8 +43,54 @@ export default function FinancialsPage() {
   const { tenants } = useTenants();
   const { properties } = useProperties();
   const { units } = useUnits();
+  const { org } = useOrganization();
+  const { receipts, notices, issueReceipt, issueNotice, resolveNotice } = useRentDocuments();
   const [search, setSearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [noticeLease, setNoticeLease] = useState<Lease | null>(null);
+  const [viewReceipt, setViewReceipt] = useState<RentReceipt | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  /**
+   * Turns a payment into a receipt the tenant can keep.
+   *
+   * The figures are frozen into the record rather than resolved from ids at
+   * print time — a receipt that changes when a unit is renamed is not evidence
+   * of anything. See RentReceipt.
+   */
+  const handleIssueReceipt = async (txn: Transaction) => {
+    const lease = leases.find(l => l.id === txn.leaseId) ?? null;
+    const tenant = tenants.find(t => t.id === txn.tenantId) ?? null;
+    const unit = units.find(u => u.id === txn.unitId) ?? null;
+    const property = properties.find(p => p.id === txn.propertyId) ?? null;
+    const view = buildReceipt({ payment: txn, transactions, lease, tenant, unit, property, org });
+
+    setBusyId(txn.id);
+    try {
+      await issueReceipt({
+        number: view.number,
+        paymentId: txn.id,
+        tenantId: txn.tenantId ?? "",
+        leaseId: txn.leaseId ?? "",
+        unitId: txn.unitId ?? "",
+        propertyId: txn.propertyId ?? "",
+        amount: view.amount,
+        period: view.period,
+        paidOn: view.paidOn,
+        method: view.method,
+        balanceAfter: view.balanceAfter,
+        tenantName: view.tenantName,
+        unitLabel: view.unitLabel,
+        propertyName: view.propertyName,
+        landlordName: view.landlordName,
+      });
+      toast.success(`Receipt ${view.number} issued — the tenant can see it in their portal.`);
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not issue the receipt."));
+    } finally {
+      setBusyId(null);
+    }
+  };
   const [form, setForm] = useState({
     type: "rent" as Transaction["type"],
     amount: "", description: "", tenantId: "",
@@ -169,6 +220,14 @@ export default function FinancialsPage() {
         <TabsList>
           <TabsTrigger value="transactions">Transactions</TabsTrigger>
           <TabsTrigger value="rentroll">Rent Roll</TabsTrigger>
+          <TabsTrigger value="documents">
+            Receipts &amp; notices
+            {notices.filter(n => n.status === "served").length > 0 && (
+              <Badge className="ml-1.5 h-4 px-1 text-[10px] bg-red-500/15 text-red-400 border-red-500/30">
+                {notices.filter(n => n.status === "served").length}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="overview">Monthly Overview</TabsTrigger>
         </TabsList>
 
@@ -194,6 +253,20 @@ export default function FinancialsPage() {
                     {["maintenance", "refund"].includes(txn.type) ? "-" : "+"}${txn.amount.toLocaleString()}
                   </span>
                   <Badge variant="outline" className={`text-[10px] ${statusColors[txn.status]}`}>{txn.status}</Badge>
+                  {/* Only money actually received can be receipted. */}
+                  {txn.status === "completed" && ["rent", "deposit", "fee", "late_fee"].includes(txn.type) && (
+                    receipts.some(r => r.paymentId === txn.id) ? (
+                      <Button variant="ghost" size="sm" className="text-muted-foreground"
+                        onClick={() => setViewReceipt(receipts.find(r => r.paymentId === txn.id)!)}>
+                        Receipt
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" disabled={busyId === txn.id}
+                        onClick={() => handleIssueReceipt(txn)}>
+                        {busyId === txn.id ? "Issuing…" : "Issue receipt"}
+                      </Button>
+                    )
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -244,9 +317,109 @@ export default function FinancialsPage() {
                      entry.status === "pending" ? <><Clock className="h-3 w-3 mr-1" />Pending</> :
                      <><AlertCircle className="h-3 w-3 mr-1" />Unpaid</>}
                   </Badge>
+                  {/* Offered only where rent is actually outstanding — a notice
+                      is a serious document, not a row action for every tenant. */}
+                  {entry.status === "unpaid" && (
+                    notices.some(n => n.leaseId === entry.lease.id && n.status === "served") ? (
+                      <Badge variant="outline" className="text-red-400 border-red-500/30">Notice served</Badge>
+                    ) : (
+                      <Button variant="outline" size="sm" onClick={() => setNoticeLease(entry.lease)}>
+                        3-day notice
+                      </Button>
+                    )
+                  )}
                 </CardContent>
               </Card>
             ))}
+          </div>
+        </TabsContent>
+
+        {/* Receipts & notices */}
+        <TabsContent value="documents" className="mt-4 space-y-6">
+          <div>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold font-heading">Notices served</h3>
+              <p className="text-xs text-muted-foreground">
+                Issue one from the Rent Roll tab, beside an unpaid tenant
+              </p>
+            </div>
+            {notices.length === 0 ? (
+              <Card className="mt-2 border-border/50 bg-card/50">
+                <CardContent className="p-6 text-center text-sm text-muted-foreground">
+                  No notices issued. That is the good outcome.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {notices.map(notice => {
+                  const overdue = notice.status === "served" && notice.deadline < new Date().toISOString().slice(0, 10);
+                  return (
+                    <Card key={notice.id} className="border-border/50 bg-card/50">
+                      <CardContent className="p-4 flex flex-wrap items-center gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">{notice.tenantNames.join(", ")}</p>
+                          <p className="text-xs text-muted-foreground">
+                            ${notice.amountDemanded.toLocaleString()} demanded · served {notice.servedOn} ·
+                            {" "}deadline {notice.deadline}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className={
+                          notice.status === "paid" ? "text-emerald-400 border-emerald-500/30"
+                            : notice.status === "withdrawn" ? "text-muted-foreground border-border/50"
+                            : overdue ? "text-red-400 border-red-500/30"
+                            : "text-amber-400 border-amber-500/30"
+                        }>
+                          {notice.status === "served" && overdue ? "Expired unpaid" : notice.status}
+                        </Badge>
+                        {notice.status === "served" && (
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" onClick={async () => {
+                              await resolveNotice(notice.id, "paid", "Rent received within the notice period");
+                              toast.success("Marked as paid — the notice is closed.");
+                            }}>Paid</Button>
+                            <Button variant="ghost" size="sm" onClick={async () => {
+                              await resolveNotice(notice.id, "withdrawn");
+                              toast.success("Withdrawn.");
+                            }}>Withdraw</Button>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold font-heading">Receipts issued</h3>
+            <p className="text-xs text-muted-foreground">
+              A tenant is entitled to one on request — Civ. Code § 1499. They appear in the tenant&apos;s portal.
+            </p>
+            {receipts.length === 0 ? (
+              <Card className="mt-2 border-border/50 bg-card/50">
+                <CardContent className="p-6 text-center text-sm text-muted-foreground">
+                  None yet — issue one from a payment on the Transactions tab.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {receipts.map(receipt => (
+                  <Card key={receipt.id} className="border-border/50 bg-card/50">
+                    <CardContent className="p-4 flex flex-wrap items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">{receipt.number}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {receipt.tenantName} · {receipt.unitLabel} · {receipt.period} · paid {receipt.paidOn}
+                        </p>
+                      </div>
+                      <span className="text-sm font-semibold">${receipt.amount.toLocaleString()}</span>
+                      <Button variant="outline" size="sm" onClick={() => setViewReceipt(receipt)}>View</Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         </TabsContent>
 
@@ -292,6 +465,35 @@ export default function FinancialsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
             <Button onClick={handleAddTransaction} disabled={!form.amount || !form.description} className="gradient-brand text-white border-0">Record</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <IssueNoticeDialog
+        open={!!noticeLease}
+        onOpenChange={(o) => !o && setNoticeLease(null)}
+        lease={noticeLease}
+        tenants={tenants}
+        unit={units.find(u => u.id === noticeLease?.unitId) ?? null}
+        property={properties.find(p => p.id === noticeLease?.propertyId) ?? null}
+        org={org}
+        transactions={transactions}
+        onIssue={issueNotice}
+      />
+
+      <Dialog open={!!viewReceipt} onOpenChange={(o) => !o && setViewReceipt(null)}>
+        <DialogContent className="sm:max-w-xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader className="no-print">
+            <DialogTitle>Receipt {viewReceipt?.number}</DialogTitle>
+          </DialogHeader>
+          {viewReceipt && (
+            <div className="space-y-3">
+              <div className="flex justify-end no-print"><PrintButton label="Print receipt" /></div>
+              <ReceiptDocument receipt={viewReceipt} />
+            </div>
+          )}
+          <DialogFooter className="no-print">
+            <Button variant="outline" onClick={() => setViewReceipt(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

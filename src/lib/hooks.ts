@@ -38,6 +38,7 @@ import type {
   Vendor, VendorStatus, WorkOrder, WorkOrderStatus, Notification,
   Inspection, InspectionType, InspectionArea, KeyRecord, KeyKind, KeyStatus,
   LockChange, UnitNote, NoteKind, CalendarEvent, CalendarEventType, Reminder,
+  RentReceipt, PayOrQuitNotice, NoticeStatus,
 } from "./types";
 
 // ============================================
@@ -1469,6 +1470,84 @@ export function useCalendar() {
   }, [events]);
 
   return { events, loading, isLive, addEvent, updateEvent, removeEvent, eventsOnDay };
+}
+
+// ============================================
+// Receipts & Notices Hook
+// ============================================
+
+/**
+ * Rent receipts and pay-or-quit notices.
+ *
+ * Both are documents a tenant has been handed, so both are read-scoped to them
+ * the same way their lease is. Neither is editable after issue — see the rules
+ * — which is why there is no update for a receipt at all and only a status
+ * change for a notice.
+ */
+export function useRentDocuments() {
+  const user = useAuthStore((s) => s.user);
+  const { data: receipts, setData: setReceipts, loading: receiptsLoading, isLive } =
+    useFirestoreCollection<RentReceipt>(
+      Collections.RECEIPTS, [], true, useTenantFilter("tenantId")
+    );
+  const { data: notices, setData: setNotices, loading: noticesLoading } =
+    useFirestoreCollection<PayOrQuitNotice>(
+      Collections.NOTICES, [], true, useTenantFilter("tenantIds", "array-contains")
+    );
+
+  const issueReceipt = useCallback(async (input: Omit<RentReceipt, "id" | "orgId" | "createdAt" | "updatedAt" | "issuedBy" | "issuedAt">) => {
+    const orgId = user?.orgId || "org-1";
+    const receipt = {
+      ...input,
+      orgId,
+      issuedBy: user?.displayName || "Property manager",
+      issuedAt: new Date().toISOString(),
+    };
+    const id = await createDocument(Collections.RECEIPTS, receipt);
+    if (!isLive) {
+      setReceipts(prev => [{ ...receipt, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as RentReceipt, ...prev]);
+    }
+    return id;
+  }, [user?.orgId, user?.displayName, isLive, setReceipts]);
+
+  const issueNotice = useCallback(async (input: Omit<PayOrQuitNotice, "id" | "orgId" | "createdAt" | "updatedAt" | "issuedBy" | "issuedAt" | "status">) => {
+    const orgId = user?.orgId || "org-1";
+    const notice = {
+      ...input,
+      orgId,
+      status: "served" as const,
+      issuedBy: user?.displayName || "Property manager",
+      issuedAt: new Date().toISOString(),
+    };
+    const id = await createDocument(Collections.NOTICES, notice);
+    if (!isLive) {
+      setNotices(prev => [{ ...notice, id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as PayOrQuitNotice, ...prev]);
+    }
+    return id;
+  }, [user?.orgId, user?.displayName, isLive, setNotices]);
+
+  /** Closes a notice out. The demand itself stays exactly as it was served. */
+  const resolveNotice = useCallback(async (
+    id: string,
+    status: Extract<NoticeStatus, "paid" | "withdrawn" | "expired">,
+    resolutionNote?: string
+  ) => {
+    const updates = {
+      status,
+      resolvedAt: new Date().toISOString(),
+      ...(resolutionNote ? { resolutionNote } : {}),
+    };
+    await updateDocument(Collections.NOTICES, id, updates);
+    if (!isLive) {
+      setNotices(prev => prev.map(n => n.id === id ? { ...n, ...updates } as PayOrQuitNotice : n));
+    }
+  }, [isLive, setNotices]);
+
+  return {
+    receipts, notices, isLive,
+    loading: receiptsLoading || noticesLoading,
+    issueReceipt, issueNotice, resolveNotice,
+  };
 }
 
 // ============================================

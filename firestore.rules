@@ -598,6 +598,46 @@ service cloud.firestore {
     // ============================================
     // The org's operational schedule reveals when units are empty and when
     // people will be on site.
+    // ============================================
+    // Rent receipts
+    // ============================================
+    // A tenant is entitled to proof that they paid (Civ. Code § 1499), so they
+    // read their own. Nobody edits one after it is issued: a receipt whose
+    // figures can change is not evidence of anything, and the tenant already
+    // holds a copy of what it said.
+    match /receipts/{receiptId} {
+      allow read: if canViewOrg(resource.data.orgId)
+                  || viewsAsTenant(resource.data.get('tenantId', ''));
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if false;
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
+    // ============================================
+    // Pay-or-quit notices
+    // ============================================
+    // The tenant reads notices served on them — they were handed one anyway,
+    // and a resident who cannot see what is being demanded cannot pay it.
+    //
+    // The demand, the dates and the service details are frozen once served: a
+    // notice whose amount could be edited afterwards would be worthless as
+    // evidence and dangerous to the tenant, who paid against a figure that no
+    // longer appears. Staff may still move it through its statuses and record
+    // how it ended.
+    match /notices/{noticeId} {
+      allow read: if canViewOrg(resource.data.orgId)
+                  || (hasProfile() && readerTenantId() in resource.data.tenantIds);
+      allow create: if canManageOrg(request.resource.data.orgId);
+      allow update: if canManageOrg(resource.data.orgId)
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                         .hasAny([
+                           'orgId', 'leaseId', 'tenantIds', 'amountDemanded',
+                           'periods', 'payee', 'servedOn', 'serviceMethod',
+                           'deadline', 'issuedBy', 'issuedAt',
+                         ]);
+      allow delete: if canManageOrg(resource.data.orgId) && isOwnerOrManager();
+    }
+
     match /calendar_events/{eventId} {
       allow read: if canViewOrg(resource.data.orgId);
       allow create: if canManageOrg(request.resource.data.orgId);

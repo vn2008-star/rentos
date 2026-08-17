@@ -34,6 +34,10 @@ import {
 } from "../src/lib/lease-actions";
 import { buildSetupSteps, setupProgress } from "../src/lib/getting-started";
 import {
+  judicialHolidays, payOrQuitDeadline, skippedDays, buildRentDemand,
+  checkNotice, receiptNumber,
+} from "../src/lib/rent-notices";
+import {
   LEASE_TEMPLATES, getLeaseTemplate, requirementsFor, securityDepositWarning,
   termEndDate,
 } from "../src/lib/lease-templates";
@@ -1693,5 +1697,226 @@ describe("moveInInspectionFor", () => {
     const { inspectBy } = davisMoveInDeadlines({ tenancyStart: baseLease.startDate });
     // Tue 1 Sep 2026 → Tue 8 Sep 2026, the weekend skipped.
     assert.equal(inspectBy, "2026-09-08");
+  });
+});
+
+// ============================================
+// Rent receipts and the three-day notice
+// ============================================
+
+describe("judicialHolidays", () => {
+  test("2026 includes the fixed and floating days CCP 135 adopts", () => {
+    const h = judicialHolidays(2026);
+    assert.ok(h.has("2026-01-01"), "New Year");
+    assert.ok(h.has("2026-01-19"), "MLK Jr Day, 3rd Monday");
+    assert.ok(h.has("2026-02-12"), "Lincoln Day");
+    assert.ok(h.has("2026-02-16"), "Presidents Day, 3rd Monday");
+    assert.ok(h.has("2026-03-31"), "Cesar Chavez Day");
+    assert.ok(h.has("2026-05-25"), "Memorial Day, last Monday");
+    assert.ok(h.has("2026-06-19"), "Juneteenth");
+    assert.ok(h.has("2026-09-07"), "Labor Day");
+    assert.ok(h.has("2026-09-25"), "Native American Day, 4th Friday");
+    assert.ok(h.has("2026-11-11"), "Veterans Day");
+    assert.ok(h.has("2026-11-26") && h.has("2026-11-27"), "Thanksgiving and the day after");
+  });
+
+  test("Independence Day 2026 falls on a Saturday and is observed on the Friday", () => {
+    const h = judicialHolidays(2026);
+    assert.ok(h.has("2026-07-03"), "observed Friday 3 July");
+    assert.ok(!h.has("2026-07-04"), "the Saturday itself is not the observed day");
+  });
+
+  test("the days CCP 135 excludes are not judicial holidays", () => {
+    const h = judicialHolidays(2026);
+    assert.ok(!h.has("2026-09-09"), "Admission Day");
+    assert.ok(!h.has("2026-04-24"), "Genocide Remembrance Day");
+  });
+});
+
+describe("payOrQuitDeadline", () => {
+  test("served Monday, deadline Thursday: the day of service does not count", () => {
+    assert.equal(payOrQuitDeadline("2026-09-14"), "2026-09-17");
+  });
+
+  test("served Thursday, the weekend is skipped", () => {
+    // Fri 18 counts, Sat/Sun do not, Mon 21 and Tue 22 count.
+    assert.equal(payOrQuitDeadline("2026-09-17"), "2026-09-22");
+  });
+
+  test("a judicial holiday inside the window pushes the deadline out", () => {
+    // Served Fri 6 Nov 2026: Mon 9, Tue 10 count; Wed 11 is Veterans Day; Thu 12.
+    assert.equal(payOrQuitDeadline("2026-11-06"), "2026-11-12");
+  });
+
+  test("Thanksgiving week costs two days, not one", () => {
+    // Served Tue 24 Nov: Wed 25 counts; Thu 26 and Fri 27 are holidays;
+    // weekend skipped; Mon 30 and Tue 1 Dec count.
+    assert.equal(payOrQuitDeadline("2026-11-24"), "2026-12-01");
+  });
+
+  test("a deadline can cross into the next year and still count correctly", () => {
+    // Served Tue 29 Dec: Wed 30, Thu 31 count; Fri 1 Jan is a holiday;
+    // weekend skipped; Mon 4 Jan is the third day.
+    assert.equal(payOrQuitDeadline("2026-12-29"), "2027-01-04");
+  });
+
+  test("a malformed date yields nothing rather than a wrong deadline", () => {
+    assert.equal(payOrQuitDeadline("not-a-date"), "");
+    assert.equal(payOrQuitDeadline(""), "");
+  });
+});
+
+describe("skippedDays", () => {
+  test("names each uncounted day and why", () => {
+    assert.deepEqual(skippedDays("2026-09-17", "2026-09-22"), [
+      { date: "2026-09-19", reason: "Saturday" },
+      { date: "2026-09-20", reason: "Sunday" },
+    ]);
+  });
+
+  test("a clear week skips nothing", () => {
+    assert.deepEqual(skippedDays("2026-09-14", "2026-09-17"), []);
+  });
+});
+
+describe("buildRentDemand", () => {
+  const theLease = {
+    id: "lease-1", rentAmount: 2000, startDate: "2026-06-01",
+    lateFeePercent: 5, gracePeriodDays: 5,
+  };
+  const txn = (over: Record<string, unknown> = {}) => ({
+    leaseId: "lease-1", type: "rent", amount: 2000,
+    status: "completed", date: "2026-06-01", ...over,
+  }) as Parameters<typeof buildRentDemand>[0]["transactions"][number];
+
+  test("unpaid months are demanded, month by month", () => {
+    const demand = buildRentDemand({ lease: theLease, transactions: [], asOf: "2026-08-17" });
+    assert.deepEqual(demand.periods.map((p) => p.period), ["2026-06", "2026-07", "2026-08"]);
+    assert.equal(demand.total, 6000);
+  });
+
+  test("payments clear the oldest months first", () => {
+    const demand = buildRentDemand({
+      lease: theLease,
+      transactions: [txn({ date: "2026-06-02" }), txn({ date: "2026-07-03" })],
+      asOf: "2026-08-17",
+    });
+    assert.deepEqual(demand.periods.map((p) => p.period), ["2026-08"]);
+    assert.equal(demand.total, 2000);
+  });
+
+  test("a part payment leaves the remainder on that month", () => {
+    const demand = buildRentDemand({
+      lease: theLease, transactions: [txn({ amount: 1200 })], asOf: "2026-06-17",
+    });
+    assert.equal(demand.total, 800);
+  });
+
+  test("a pending or failed payment is not money received", () => {
+    for (const status of ["pending", "failed", "refunded"]) {
+      const demand = buildRentDemand({
+        lease: theLease, transactions: [txn({ status })], asOf: "2026-06-17",
+      });
+      assert.equal(demand.total, 2000, status + " should not clear the rent");
+    }
+  });
+
+  test("non-rent money does not clear rent", () => {
+    const demand = buildRentDemand({
+      lease: theLease,
+      transactions: [txn({ type: "deposit" }), txn({ type: "late_fee", amount: 100 })],
+      asOf: "2026-06-17",
+    });
+    assert.equal(demand.total, 2000);
+  });
+
+  test("the late fee is excluded and named, because including it voids the notice", () => {
+    const demand = buildRentDemand({ lease: theLease, transactions: [], asOf: "2026-06-17" });
+    assert.equal(demand.excluded.length, 1);
+    assert.equal(demand.excluded[0].label, "Late fee");
+    assert.equal(demand.excluded[0].amount, 100);
+    assert.match(demand.excluded[0].reason, /1161/);
+    assert.equal(demand.total, 2000, "and it is genuinely not in the total");
+  });
+
+  test("rent older than twelve months is reported separately, never demanded", () => {
+    const old = { ...theLease, startDate: "2024-01-01" };
+    const demand = buildRentDemand({ lease: old, transactions: [], asOf: "2026-08-17" });
+    for (const p of demand.periods) {
+      assert.ok(p.dueDate >= "2025-08-17", p.dueDate + " is too old to demand");
+    }
+    assert.ok(demand.barredTotal > 0, "the older arrears are still reported");
+  });
+
+  test("a lease with nothing outstanding demands nothing", () => {
+    const paid = [txn({ date: "2026-06-01" }), txn({ date: "2026-07-01" }), txn({ date: "2026-08-01" })];
+    const demand = buildRentDemand({ lease: theLease, transactions: paid, asOf: "2026-08-17" });
+    assert.equal(demand.total, 0);
+    assert.deepEqual(demand.periods, []);
+    assert.deepEqual(demand.excluded, [], "nothing owed means nothing to exclude either");
+  });
+});
+
+describe("checkNotice", () => {
+  const demand = { periods: [], total: 2000, excluded: [], barredTotal: 0 };
+  const payee = {
+    name: "Olive Drive Rentals", phone: "(530) 555-0100",
+    address: "820 Olive Dr, Davis CA", method: "in_person" as const,
+    hours: "Mon-Fri 9-5",
+  };
+  const base = {
+    demand, payee, tenantNames: ["Daniel Okafor"],
+    unitAddress: "820 Olive Dr, Unit A, Davis, CA 95616", servedOn: "2026-09-14",
+  };
+  const blockers = (over: Record<string, unknown> = {}) =>
+    checkNotice({ ...base, ...over } as Parameters<typeof checkNotice>[0])
+      .filter((p) => p.severity === "blocker");
+
+  test("a complete notice has no blockers", () => {
+    assert.deepEqual(blockers(), []);
+  });
+
+  test("the CCP 1161(2) contact details are each required", () => {
+    assert.ok(blockers({ payee: { ...payee, name: "" } }).some((p) => p.field === "payee.name"));
+    assert.ok(blockers({ payee: { ...payee, phone: "" } }).some((p) => p.field === "payee.phone"));
+    assert.ok(blockers({ payee: { ...payee, address: "" } }).some((p) => p.field === "payee.address"));
+  });
+
+  test("paying in person requires the days and hours", () => {
+    assert.ok(blockers({ payee: { ...payee, hours: "" } }).some((p) => p.field === "payee.hours"));
+  });
+
+  test("a bank must be named with its account number", () => {
+    const bank = { ...payee, method: "bank" as const, bankName: "Yolo Federal", accountNumber: "" };
+    assert.ok(blockers({ payee: bank }).some((p) => p.field === "payee.bank"));
+  });
+
+  test("a notice demanding nothing is refused", () => {
+    assert.ok(blockers({ demand: { ...demand, total: 0 } }).some((p) => p.field === "amount"));
+  });
+
+  test("excluded charges and barred arrears warn without blocking", () => {
+    const problems = checkNotice({
+      ...base,
+      demand: {
+        ...demand,
+        excluded: [{ label: "Late fee", amount: 100, reason: "x" }],
+        barredTotal: 500,
+      },
+    });
+    assert.deepEqual(problems.filter((p) => p.severity === "blocker"), []);
+    assert.equal(problems.filter((p) => p.severity === "warning").length, 2);
+  });
+});
+
+describe("receiptNumber", () => {
+  test("the same payment always produces the same number", () => {
+    const payment = { id: "pi_3QabcdEFGH12345", date: "2026-09-01" };
+    assert.equal(receiptNumber(payment), receiptNumber(payment));
+    assert.equal(receiptNumber(payment), "R-20260901-H12345");
+  });
+
+  test("a payment with no date still yields a usable number", () => {
+    assert.match(receiptNumber({ id: "abc123", date: "" }), /^R-00000000-/);
   });
 });

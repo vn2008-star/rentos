@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useLeases, useCurrentTenant, useMaintenance, useTransactions } from "@/lib/hooks";
 import { useAuthStore } from "@/lib/store";
+import { TenantNoticeBanner } from "@/components/tenant-notice-banner";
 
 export default function TenantPortalPage() {
   const user = useAuthStore(s => s.user);
@@ -33,6 +34,8 @@ export default function TenantPortalPage() {
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">Your rental dashboard at a glance</p>
       </div>
+
+      <TenantNoticeBanner />
 
       {/* Rent Due Card */}
       <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-violet-500/5">

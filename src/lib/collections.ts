@@ -39,4 +39,6 @@ export const Collections = {
   LOCK_CHANGES: "lock_changes",
   UNIT_NOTES: "unit_notes",
   CALENDAR_EVENTS: "calendar_events",
+  RECEIPTS: "receipts",
+  NOTICES: "notices",
 } as const;

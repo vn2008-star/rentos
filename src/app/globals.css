@@ -217,3 +217,51 @@
     animation-fill-mode: forwards;
   }
 }
+
+/*
+ * Printing a receipt or a notice.
+ *
+ * Both are documents that leave the app — handed over, posted, or attached to a
+ * court filing — so printing must produce the document and nothing else. The
+ * sidebar, the dialog chrome and the app's dark theme are all hidden rather
+ * than restyled, because a notice printed in white-on-black wastes a cartridge
+ * and reads as unserious in a courtroom.
+ */
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  body :not(:has(.print-document)):not(.print-document):not(.print-document *) {
+    visibility: hidden;
+  }
+
+  .print-document,
+  .print-document * {
+    visibility: visible;
+  }
+
+  .print-document {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0.5in;
+    box-shadow: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11pt;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  @page {
+    margin: 0.5in;
+  }
+}

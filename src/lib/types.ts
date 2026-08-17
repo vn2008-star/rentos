@@ -386,6 +386,97 @@ export interface PaymentRecord {
   createdAt: string;
 }
 
+// ----- Rent receipts -----
+/**
+ * Proof that a tenant paid, which they are entitled to ask for — Civ. Code
+ * § 1499. Stored rather than generated on the fly so the figures on a receipt
+ * already handed over never change afterwards.
+ */
+export interface RentReceipt {
+  id: string;
+  orgId: string;
+  /** Human-readable and stable: the same payment always gets the same number. */
+  number: string;
+  paymentId: string;
+  tenantId: string;
+  leaseId: string;
+  unitId: string;
+  propertyId: string;
+  amount: number;
+  /** yyyy-MM the payment was for. */
+  period: string;
+  paidOn: string;
+  method: string;
+  /**
+   * Names as they were at issue, not ids to resolve later.
+   *
+   * A receipt is evidence of a moment. Rendering it from today's tenant and
+   * unit records would silently rewrite a document the tenant already holds —
+   * and would show nothing at all once those records are deleted.
+   */
+  tenantName: string;
+  unitLabel: string;
+  propertyName: string;
+  landlordName: string;
+  /** What was still outstanding for that period once this payment landed. */
+  balanceAfter: number;
+  issuedBy: string;
+  issuedAt: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ----- Pay-or-quit notices -----
+export type NoticeStatus = "draft" | "served" | "paid" | "expired" | "withdrawn";
+export type ServiceMethod = "personal" | "substituted" | "post_and_mail";
+
+/**
+ * A three-day notice to pay rent or quit — CCP § 1161(2).
+ *
+ * Kept as a record, not just a printout, because what matters later is what was
+ * demanded, of whom, on what date, and how it was served. The demand is frozen
+ * at issue: recomputing it from today's ledger would quietly change a document
+ * that has already been handed to somebody.
+ */
+export interface PayOrQuitNotice {
+  id: string;
+  orgId: string;
+  leaseId: string;
+  unitId: string;
+  propertyId: string;
+  tenantIds: string[];
+  tenantNames: string[];
+  unitAddress: string;
+  /** Rent only. Late fees and other charges are excluded by law. */
+  amountDemanded: number;
+  periods: { period: string; dueDate: string; owed: number }[];
+  /** Recorded so the reason for the difference from the rent roll survives. */
+  excludedCharges: { label: string; amount: number; reason: string }[];
+  payee: {
+    name: string;
+    phone: string;
+    address: string;
+    hours?: string;
+    method: "in_person" | "bank" | "electronic";
+    bankName?: string;
+    accountNumber?: string;
+    electronicDescription?: string;
+  };
+  servedOn: string;
+  serviceMethod: ServiceMethod;
+  /** Computed at issue: three countable days after service. */
+  deadline: string;
+  status: NoticeStatus;
+  issuedBy: string;
+  issuedAt: string;
+  /** Set when the tenant pays in time, or the landlord withdraws it. */
+  resolvedAt?: string;
+  resolutionNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ----- Screening Results -----
 export interface ScreeningResult {
   creditScore: number;
