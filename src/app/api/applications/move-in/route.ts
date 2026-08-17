@@ -4,6 +4,7 @@ import { Collections } from "@/lib/collections";
 import { jsonError, requireStaff } from "@/lib/api-auth";
 import { checkMoveIn, type MoveInRequest } from "@/lib/move-in";
 import { moveInInspectionFor } from "@/lib/inspection-templates";
+import { unitOccupancyForLease } from "@/lib/lease-actions";
 import type { Lease, Organization, RentalApplication, Tenant, Unit } from "@/lib/types";
 
 /**
@@ -144,11 +145,11 @@ export async function POST(req: NextRequest) {
       createdAt: now,
       updatedAt: now,
     });
-    tx.update(unitRef!, {
-      status: "occupied",
-      currentTenantId: tenantRef.id,
-      updatedAt: now,
-    });
+    // Through the shared helper so a unit filled from an application ends up in
+    // exactly the same state as one filled by signing a lease. This used to set
+    // status and currentTenantId but not currentLeaseId, so which of the two
+    // paths had been taken was visible in the data afterwards.
+    tx.update(unitRef!, unitOccupancyForLease({ id: leaseRef.id, tenantIds: lease.tenantIds }, now));
     tx.update(appRef, {
       tenantId: tenantRef.id,
       leaseId: leaseRef.id,

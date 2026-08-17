@@ -571,11 +571,13 @@ export default function InspectionsPage() {
                     </div>
                   )}
                   <div>
-                    <Label>Photos</Label>
+                    {/* PhotoUpload draws its own label, so this one only said
+                        "Photos" above "Upload Photos". */}
                     <PhotoUpload
                       photos={areaForm.photos}
                       onChange={f => setAreaForm({ ...areaForm, photos: f as File[] })}
                       maxPhotos={6}
+                      label="Photos"
                     />
                   </div>
                   <Button onClick={handleSaveArea} disabled={saving} size="sm"
