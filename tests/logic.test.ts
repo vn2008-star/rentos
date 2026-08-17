@@ -34,6 +34,10 @@ import {
 } from "../src/lib/lease-actions";
 import { buildSetupSteps, setupProgress } from "../src/lib/getting-started";
 import {
+  LEASE_TEMPLATES, getLeaseTemplate, requirementsFor, securityDepositWarning,
+  termEndDate,
+} from "../src/lib/lease-templates";
+import {
   resolveCollection, applyCollectionWrite, type CollectionState,
 } from "../src/lib/collection-state";
 import type {
@@ -1394,5 +1398,100 @@ describe("setupProgress", () => {
 
   test("a finished org has nothing next", () => {
     assert.equal(setupProgress([step("a", true)]).next, null);
+  });
+});
+
+// ============================================
+// Lease templates — Davis Model Lease and California standard
+// ============================================
+
+describe("lease templates", () => {
+  test("both options exist and are the two a Davis landlord chooses between", () => {
+    assert.deepEqual(
+      LEASE_TEMPLATES.map((t) => t.id).sort(),
+      ["ca-standard", "davis-model"]
+    );
+  });
+
+  test("the Davis Model Lease points at the authentic ASUCD document", () => {
+    const davis = getLeaseTemplate("davis-model")!;
+    assert.match(davis.sourceUrl ?? "", /resources\.ucdavis\.edu/);
+  });
+
+  test("no template reproduces lease text — the terms are a pointer to the signed document", () => {
+    for (const template of LEASE_TEMPLATES) {
+      assert.match(template.terms, /signed document governs/);
+    }
+  });
+
+  test("an unknown id resolves to nothing rather than a wrong lease", () => {
+    assert.equal(getLeaseTemplate("nope"), null);
+    assert.equal(getLeaseTemplate(undefined), null);
+  });
+});
+
+describe("requirementsFor", () => {
+  test("Davis carries the City's duties on top of the state's", () => {
+    const state = requirementsFor("ca-standard").map((r) => r.id);
+    const davis = requirementsFor("davis-model").map((r) => r.id);
+    for (const id of state) assert.ok(davis.includes(id), `${id} missing from the Davis list`);
+    assert.ok(davis.includes("davis-registration"));
+    assert.ok(davis.includes("davis-move-in-checklist"));
+    assert.ok(!state.includes("davis-registration"));
+  });
+
+  test("lead paint appears only for a building that could have it", () => {
+    assert.ok(!requirementsFor("ca-standard").some((r) => r.id === "lead-paint"));
+    assert.ok(!requirementsFor("ca-standard", { builtBefore1978: false }).some((r) => r.id === "lead-paint"));
+    assert.ok(requirementsFor("ca-standard", { builtBefore1978: true }).some((r) => r.id === "lead-paint"));
+  });
+
+  test("every requirement carries a citation or a plain reason", () => {
+    for (const req of requirementsFor("davis-model", { builtBefore1978: true })) {
+      assert.ok(req.detail.length > 20, `${req.id} needs a real explanation`);
+    }
+  });
+});
+
+describe("securityDepositWarning", () => {
+  test("one month's rent is fine and says nothing", () => {
+    assert.equal(securityDepositWarning(2000, 2000), null);
+    assert.equal(securityDepositWarning(2000, 1500), null);
+  });
+
+  test("between one and two months mentions the small-landlord exception", () => {
+    const warning = securityDepositWarning(2000, 3000);
+    assert.ok(warning);
+    assert.match(warning!, /two rental properties and four units/);
+  });
+
+  test("over two months is over the cap in every case", () => {
+    const warning = securityDepositWarning(2000, 6000);
+    assert.ok(warning);
+    assert.match(warning!, /over the legal maximum in every case/);
+  });
+
+  test("an empty form is not an accusation", () => {
+    assert.equal(securityDepositWarning(0, 0), null);
+    assert.equal(securityDepositWarning(NaN, NaN), null);
+    assert.equal(securityDepositWarning(2000, 0), null);
+  });
+});
+
+describe("termEndDate", () => {
+  test("a 12 month lease ends the day before its anniversary, not on it", () => {
+    // 1 Sep to 1 Sep overlaps itself at both ends, and the renewal then looks
+    // like a double booking on the unit.
+    assert.equal(termEndDate("davis-model", "2026-09-01"), "2027-08-31");
+    assert.equal(termEndDate("ca-standard", "2026-09-01"), "2027-08-31");
+  });
+
+  test("leap day does not produce an invalid date", () => {
+    assert.equal(termEndDate("ca-standard", "2027-03-01"), "2028-02-29");
+  });
+
+  test("a half-typed date yields nothing rather than a wrong term", () => {
+    assert.equal(termEndDate("ca-standard", "2026-09"), "");
+    assert.equal(termEndDate("ca-standard", ""), "");
   });
 });

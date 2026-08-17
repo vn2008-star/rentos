@@ -342,6 +342,14 @@ export interface Lease {
   renewalDecision?: "accepted" | "declined" | "pending";
   /** ISO. When the tenant answered the offer — written by /api/leases/renewal. */
   renewalRespondedAt?: string;
+  /**
+   * Which lease this tenancy is on — see lease-templates.ts.
+   *
+   * Recorded because it decides what the landlord still owes the tenant: the
+   * Davis Model Lease carries the City's registration and move-in inspection
+   * duties that a plain California lease does not.
+   */
+  templateId?: "davis-model" | "ca-standard";
   createdAt: string;
   updatedAt: string;
 }

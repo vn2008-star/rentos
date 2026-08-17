@@ -596,6 +596,7 @@ export function useLeases() {
     startDate: string; endDate: string; rentAmount: number;
     securityDeposit: number; terms?: string; autoRenew?: boolean;
     lateFeePercent?: number; gracePeriodDays?: number;
+    templateId?: Lease["templateId"];
   }) => {
     const orgId = user?.orgId || "org-1";
     const lease: Omit<Lease, "id" | "createdAt" | "updatedAt"> = {
@@ -615,6 +616,7 @@ export function useLeases() {
       documents: [],
       signatures: [],
       renewalOffered: false,
+      ...(input.templateId ? { templateId: input.templateId } : {}),
     };
 
     try {

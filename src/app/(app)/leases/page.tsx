@@ -13,7 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useLeases, useProperties, useUnits, useTenants } from "@/lib/hooks";
 import { ESignature } from "@/components/e-signature";
+import { LeaseRequirements } from "@/components/lease-requirements";
+import {
+  LEASE_TEMPLATES, getLeaseTemplate, securityDepositWarning, termEndDate,
+  type LeaseTemplateId,
+} from "@/lib/lease-templates";
 import type { Lease, LeaseStatus } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { format, differenceInDays, parseISO } from "date-fns";
 import { errorMessage } from "@/lib/errors";
 import toast from "react-hot-toast";
@@ -45,7 +51,32 @@ export default function LeasesPage() {
     startDate: "", endDate: "", rentAmount: "",
     securityDeposit: "", terms: "", autoRenew: false,
     lateFeePercent: "5", gracePeriodDays: "5",
+    templateId: "" as "" | LeaseTemplateId,
   });
+
+  /**
+   * Choosing the lease fills in what it implies — term, late fee, grace period
+   * and a starting Terms paragraph. Anything already typed is left alone: a
+   * picker that wipes a rent figure somebody just entered is a picker they stop
+   * touching.
+   */
+  const chooseTemplate = (id: LeaseTemplateId) => {
+    const template = getLeaseTemplate(id);
+    if (!template) return;
+    setForm((prev) => ({
+      ...prev,
+      templateId: id,
+      lateFeePercent: String(template.defaults.lateFeePercent),
+      gracePeriodDays: String(template.defaults.gracePeriodDays),
+      autoRenew: template.defaults.autoRenew,
+      terms: prev.terms.trim() ? prev.terms : template.terms,
+      endDate: prev.startDate ? termEndDate(id, prev.startDate) : prev.endDate,
+    }));
+  };
+
+  const selectedTemplate = getLeaseTemplate(form.templateId);
+  const depositWarning = securityDepositWarning(Number(form.rentAmount), Number(form.securityDeposit));
+  const formProperty = properties.find(p => p.id === form.propertyId);
 
   const activeLeases = leases.filter(l => l.status === "active").length;
   const expiringLeases = leases.filter(l => l.status === "expiring_soon").length;
@@ -82,10 +113,11 @@ export default function LeasesPage() {
         autoRenew: form.autoRenew,
         lateFeePercent: Number(form.lateFeePercent),
         gracePeriodDays: Number(form.gracePeriodDays),
+        templateId: form.templateId || undefined,
       });
       toast.success("Lease created as draft");
       setShowAdd(false);
-      setForm({ propertyId: "", unitId: "", tenantId: "", startDate: "", endDate: "", rentAmount: "", securityDeposit: "", terms: "", autoRenew: false, lateFeePercent: "5", gracePeriodDays: "5" });
+      setForm({ propertyId: "", unitId: "", tenantId: "", startDate: "", endDate: "", rentAmount: "", securityDeposit: "", terms: "", autoRenew: false, lateFeePercent: "5", gracePeriodDays: "5", templateId: "" });
     } catch { toast.error("Failed to create lease"); }
     finally { setSaving(false); }
   };
@@ -204,7 +236,14 @@ export default function LeasesPage() {
                 <SheetHeader>
                   <SheetTitle className="font-heading text-lg">Lease Details</SheetTitle>
                 </SheetHeader>
-                <Badge className={`border ${sc.color}`}>{sc.label}</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={`border ${sc.color}`}>{sc.label}</Badge>
+                  {getLeaseTemplate(selectedLease.templateId) && (
+                    <Badge variant="outline" className="border-primary/30 text-primary">
+                      {getLeaseTemplate(selectedLease.templateId)!.name}
+                    </Badge>
+                  )}
+                </div>
 
                 <Card className="border-border/50 bg-card/50">
                   <CardContent className="p-4 space-y-3 text-sm">
@@ -226,6 +265,13 @@ export default function LeasesPage() {
                     )}
                   </CardContent>
                 </Card>
+
+                {selectedLease.templateId && (
+                  <LeaseRequirements
+                    templateId={selectedLease.templateId}
+                    yearBuilt={prop?.yearBuilt}
+                  />
+                )}
 
                 {/* Signatures */}
                 <Card className="border-border/50 bg-card/50">
@@ -288,13 +334,49 @@ export default function LeasesPage() {
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-heading">Create New Lease</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
+            {/* Which lease, before any of the figures — it decides the defaults
+                below and what the landlord still owes the tenant. */}
+            <div className="space-y-2">
+              <Label>Which lease</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {LEASE_TEMPLATES.map((template) => {
+                  const active = form.templateId === template.id;
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => chooseTemplate(template.id)}
+                      className={cn(
+                        "rounded-lg border p-3 text-left transition-colors",
+                        active
+                          ? "border-primary bg-primary/5"
+                          : "border-border/50 bg-card/50 hover:border-primary/30"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-semibold font-heading">{template.name}</p>
+                        {active && <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{template.tagline}</p>
+                      <p className="mt-1.5 text-[11px] text-muted-foreground/80">{template.bestFor}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedTemplate && (
+                <p className="text-[11px] text-muted-foreground">{selectedTemplate.sourceNote}</p>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2"><Label>Property</Label><Select value={form.propertyId} onValueChange={v => v != null && setForm({ ...form, propertyId: v, unitId: "" })}><SelectTrigger><SelectValue placeholder="Select property" /></SelectTrigger><SelectContent>{properties.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
               {form.propertyId && (
                 <div className="col-span-2"><Label>Unit</Label><Select value={form.unitId} onValueChange={v => v != null && setForm({ ...form, unitId: v })}><SelectTrigger><SelectValue placeholder="Select unit" /></SelectTrigger><SelectContent>{units.filter(u => u.propertyId === form.propertyId).map(u => <SelectItem key={u.id} value={u.id}>Unit {u.unitNumber} — ${u.rent}/mo</SelectItem>)}</SelectContent></Select></div>
               )}
               <div className="col-span-2"><Label>Tenant</Label><Select value={form.tenantId} onValueChange={v => v != null && setForm({ ...form, tenantId: v })}><SelectTrigger><SelectValue placeholder="Select tenant" /></SelectTrigger><SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id}>{t.firstName} {t.lastName}</SelectItem>)}</SelectContent></Select></div>
-              <div><Label>Start Date</Label><Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} /></div>
+              {/* Setting a start date fills the end date from the template's
+                  term — a 12 month lease is what both of these are. */}
+              <div><Label>Start Date</Label><Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value, endDate: form.templateId && !form.endDate ? termEndDate(form.templateId, e.target.value) : form.endDate })} /></div>
               <div><Label>End Date</Label><Input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} /></div>
               <div><Label>Monthly Rent ($)</Label><Input type="number" placeholder="1800" value={form.rentAmount} onChange={e => setForm({ ...form, rentAmount: e.target.value })} /></div>
               <div><Label>Security Deposit ($)</Label><Input type="number" placeholder="1800" value={form.securityDeposit} onChange={e => setForm({ ...form, securityDeposit: e.target.value })} /></div>
@@ -302,6 +384,17 @@ export default function LeasesPage() {
               <div><Label>Grace Period (days)</Label><Input type="number" placeholder="5" value={form.gracePeriodDays} onChange={e => setForm({ ...form, gracePeriodDays: e.target.value })} /></div>
               <div className="col-span-2"><Label>Terms & Conditions</Label><Textarea placeholder="Standard lease terms..." value={form.terms} onChange={e => setForm({ ...form, terms: e.target.value })} rows={3} /></div>
             </div>
+
+            {depositWarning && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-300">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-px" />
+                <span>{depositWarning}</span>
+              </div>
+            )}
+
+            {form.templateId && (
+              <LeaseRequirements templateId={form.templateId} yearBuilt={formProperty?.yearBuilt} />
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
